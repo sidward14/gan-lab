@@ -350,7 +350,7 @@ if __name__ == '__main__':
   configs_dir = str( os.path.abspath( os.path.dirname( __file__ ) ) )
 
   with open( str( Path.home()/'.configs_dir.txt' ), 'wb' ) as f:
-    f.write( configs_dir.encode())
+    f.write( configs_dir.encode() )
 
   with open( configs_dir + '/.data_config.p', 'wb' ) as f:
     pickle.dump( data_config, f, protocol = 3 )
