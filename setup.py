@@ -14,11 +14,13 @@ def readme( ):
 
 setup(
   name = 'gan-zoo',
-  version = '0.0.1',
+  version = '0.0.2',
   author = 'Sidhartha Parhi',
   author_email = 'sidhartha.parhi@gmail.com',
   description = "StyleGAN, ProGAN, and ResNet GANs with an intuitive API and helpful features",
   long_description = readme( ),
+  long_description_content_type = 'text/markdown',
+  url = "https://github.com/sidward14/gan-zoo",
   packages = [
     'gan_zoo',
     'gan_zoo.utils',
@@ -31,7 +33,7 @@ setup(
     'numpy >= 1.17.2',
     'pillow >= 6.2.0',
     'matplotlib >= 3.1.1',
-    'indexed-py >= 0.0.1',
+    'indexed.py >= 0.0.1',
     'torch >= 1.3.0',
     'torchvision >= 0.4.1',
   ],

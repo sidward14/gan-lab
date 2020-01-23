@@ -38,7 +38,7 @@ A ProGAN Generator that yields 128x128 images _(higher resolutions coming soon)_
   ~~~
 
   <p align="center">
-  <img align="center" src ="https://github.com/sidward14/gan-zoo/examples/gif/image_grids.gif"/>
+  <img align="center" src ="https://github.com/sidward14/gan-zoo/blob/master/examples/gif/image_grids.gif"/>
   </p>
   <br>
 
