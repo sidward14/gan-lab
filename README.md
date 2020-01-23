@@ -38,7 +38,7 @@ A ProGAN Generator that yields 128x128 images _(higher resolutions coming soon)_
   ~~~
 
   <p align="center">
-  ![](examples/gif/image_grids.gif?raw=true)
+  <img align="center" src ="https://github.com/sidward14/examples/gif/image_grids.gif"/>
   </p>
   <br>
 
