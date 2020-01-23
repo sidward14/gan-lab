@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+
+lab/
+
+.config.p
+.data_config.p
+
+.vs/
+.vscode/

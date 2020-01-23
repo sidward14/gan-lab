@@ -1,0 +1,5 @@
+__pycache__/
+*.py[cod]
+
+.config.p
+.data_config.p
