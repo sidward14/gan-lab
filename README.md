@@ -38,11 +38,11 @@ A ProGAN Generator that yields 128x128 images _(higher resolutions coming soon)_
   ~~~
 
   <p align="center">
-  ![](lab/samples/samples_progan/celeba-hq_1050000-iters/image_grid/gif/image_grids.gif?raw=true)
+  ![](examples/gif/image_grids.gif?raw=true)
   </p>
   <br>
 
-By default (see config.py), the image grid above is saved periodically during training into the working directory of config.py (in the [](./gan_zoo/samples) folder) every 1000 iterations.
+By default (see config.py), the image grid above is saved periodically during training into the working directory of config.py (into the ./gan_zoo/samples folder) every 1000 iterations.
 
 ### StyleGAN Example:
 
