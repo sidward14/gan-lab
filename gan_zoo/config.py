@@ -396,7 +396,7 @@ if __name__ == '__main__':
   # print( config )
 
   with open( str( Path.home()/'.configs_dir.txt' ), 'wb' ) as f:
-    f.write( configs_dir .encode())
+    f.write( configs_dir.encode())
 
   with open( configs_dir + '/.config.p', 'wb' ) as f:
     pickle.dump( config, f, protocol = 3 )
