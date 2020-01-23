@@ -10,6 +10,11 @@ Comes with additional features such as supervised learning capabilities, an easy
 
 This package aims for an intuitive API without sacrificing any complexity anywhere.
 
+  <p align="center">
+  <img align="center" src ="https://github.com/sidward14/gan-zoo/blob/master/examples/gif/106.png" height=150% weight=150%/>
+  </p>
+  <br>
+
 --------------------------------------------------------------------------------
 
 In your virtual environment (e.g. a conda virtual environment), run:
@@ -53,7 +58,7 @@ A StyleGAN Generator can be created by running the following 3 lines (for exampl
   $ python train.py
   ~~~
 
-  [IMAGE GRID GIF COMING SOON]
+  [SAMPLES COMING SOON]
 
 ### ResNet GAN Example:
 
@@ -64,7 +69,7 @@ A ResNet GAN Generator can be created by running the following 3 lines (for exam
   $ python train.py
   ~~~
 
-  [IMAGE GRID GIF COMING SOON]
+  [SAMPLES COMING SOON]
 
 
 
