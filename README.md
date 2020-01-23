@@ -11,7 +11,7 @@ Comes with additional features such as supervised learning capabilities, an easy
 This package aims for an intuitive API without sacrificing any complexity anywhere.
 
   <p align="center">
-  <img align="center" src ="https://github.com/sidward14/gan-zoo/blob/master/examples/gif/106.png" height=150% weight=150%/>
+  <img align="center" src ="https://github.com/sidward14/gan-zoo/blob/master/examples/gif/106.png" height="864" width="864"/>
   </p>
   <br>
 
