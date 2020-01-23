@@ -1,4 +1,10 @@
 # GAN Zoo
+
+<p align="left">
+<img align="center" src ="https://github.com/sidward14/gan-zoo/blob/master/examples/gif/106.png" height="432" width="432"/>
+<img align="center" src ="https://github.com/sidward14/gan-zoo/blob/master/examples/gif/672.png" height="432" width="432"/>
+</p>
+
 __Currently supports:__
 + StyleGAN
 + ProGAN
@@ -9,12 +15,6 @@ Each GAN model's default settings exactly emulates its respective most recent of
 Comes with additional features such as supervised learning capabilities, an easy-to-use interface for saving/loading the model state, flexible learning rate scheduling (and re-scheduling) capabilities, and more.
 
 This package aims for an intuitive API without sacrificing any complexity anywhere.
-
-  <p align="left">
-  <img align="center" src ="https://github.com/sidward14/gan-zoo/blob/master/examples/gif/106.png" height="432" width="432"/>
-  <img align="center" src ="https://github.com/sidward14/gan-zoo/blob/master/examples/gif/672.png" height="432" width="432"/>
-  </p>
-  <br>
 
 --------------------------------------------------------------------------------
 
