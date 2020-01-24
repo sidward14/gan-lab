@@ -6,11 +6,11 @@
 </p>
 
 __Currently supports:__
-+ StyleGAN
-+ ProGAN
++ StyleGAN (https://arxiv.org/pdf/1812.04948.pdf)
++ ProGAN (https://arxiv.org/pdf/1710.10196.pdf)
 + ResNet GANs
 
-Each GAN model's default settings exactly emulates its respective most recent official implementation, but at the same time this package features a simple interface (config.py) where the user can quickly tune an extensive list of hyperparameter settings to their choosing.
+Each GAN model's default settings exactly emulates its respective most recent official implementation, but at the same time this package features a simple interface ([config.py](./gan_zoo/config.py)) where the user can quickly tune an extensive list of hyperparameter settings to their choosing.
 
 Comes with additional features such as supervised learning capabilities, an easy-to-use interface for saving/loading the model state, flexible learning rate scheduling (and re-scheduling) capabilities, and more.
 
@@ -20,7 +20,7 @@ This package aims for an intuitive API without sacrificing any complexity anywhe
 
 In your virtual environment (e.g. a conda virtual environment), run:
   ~~~
-  $ pip install gan_zoo
+  $ pip install gan-zoo
   ~~~
 This will install all necessary dependencies for you and will enable the option to use the package like an API (see "Jupyter Notebook (or Custom Script) Usage" below).
 
@@ -48,7 +48,7 @@ A ProGAN Generator that yields 128x128 images _(higher resolutions coming soon)_
   </p>
   <br>
 
-By default (see config.py), the image grid above is saved periodically during training into the working directory of config.py (into the ./gan_zoo/samples folder) every 1000 iterations.
+By default (see [config.py](./gan_zoo/config.py)), the image grid above is saved periodically during training into the "./gan_zoo/samples" directory every 1000 iterations.
 
 ### StyleGAN Example:
 
@@ -76,7 +76,7 @@ A ResNet GAN Generator can be created by running the following 3 lines (for exam
 
 ## Jupyter Notebook (or Custom Script) Usage
 
-Running train.py is just the very basic usage. This package can be imported and utilized in a modular manner as well (like an API). For example, often it's helpful to experiment inside a Jupyter Notebook, like in the example below.
+Running [train.py](./gan_zoo/train.py) is just the very basic usage. This package can be imported and utilized in a modular manner as well (like an API). For example, often it's helpful to experiment inside a Jupyter Notebook, like in the example below.
 
   First configure your GAN to your choosing on the command-line (like explained above under "Basic Usage on Command-line"):
   ~~~
