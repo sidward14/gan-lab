@@ -48,7 +48,7 @@ A ProGAN Generator that yields 128x128 images _(higher resolutions coming soon)_
   </p>
   <br>
 
-By default (see [config.py](./gan_zoo/config.py)), the image grid above is saved periodically during training into the "./gan_zoo/samples" directory every 1000 iterations.
+By default, the image grid above is saved periodically during training into the "./gan_zoo/samples" directory every 1000 iterations (see [config.py](./gan_zoo/config.py)).
 
 ### StyleGAN Example:
 

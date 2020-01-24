@@ -97,7 +97,7 @@ def make_valid_set( dataset_dir:Path, training_set_dirname = 'train', valid_set_
 
       if not ( training_set_path.exists() and training_set_path.is_dir() ):
         print( f'Creating training set at "{training_set_path_str}"...\n' )
-        training_set_path.mkdir( exists_ok = False )
+        training_set_path.mkdir( exist_ok = False )
         for f in dataset_dir.iterdir():
           if f.is_file():
             shutil.move( str( f ), training_set_path_str )
