@@ -1,8 +1,8 @@
 # GAN Zoo
 
 <p align="left">
-<img align="center" src ="https://github.com/sidward14/gan-zoo/blob/master/examples/gif/106.png" height="432" width="432"/>
-<img align="center" src ="https://github.com/sidward14/gan-zoo/blob/master/examples/gif/672.png" height="432" width="432"/>
+<img align="center" src ="https://github.com/sidward14/gan-zoo/raw/master/examples/gif/106.png" height="432" width="432"/>
+<img align="center" src ="https://github.com/sidward14/gan-zoo/raw/master/examples/gif/672.png" height="432" width="432"/>
 </p>
 
 __Currently supports:__
@@ -44,7 +44,7 @@ A ProGAN Generator that yields 128x128 images _(higher resolutions coming soon)_
   ~~~
 
   <p align="center">
-  <img align="center" src ="https://github.com/sidward14/gan-zoo/blob/master/examples/gif/image_grids.gif"/>
+  <img align="center" src ="https://github.com/sidward14/gan-zoo/raw/master/examples/gif/image_grids.gif"/>
   </p>
   <br>
 
