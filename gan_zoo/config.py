@@ -226,7 +226,8 @@ if __name__ == '__main__':
 
     parser.add_argument( '--beta2', type = float, default = .99, help = 'variance/RMSprop EWMA decay coefficient (default recommended for Adam)' )
 
-    parser.add_argument( '--res_samples', type = int, default = 1024, help = 'final resoluton of generated samples' )
+    parser.add_argument( '--res_samples', type = int, default = 1024, choices = np.logspace( 2, 16, num = 15, base = 2, dtype = np.uint64 ), \
+      help = 'final resoluton of generated samples' )
     parser.add_argument( '--res_dataset', type = int, default = 1024, choices = np.logspace( 2, 16, num = 15, base = 2, dtype = np.uint64 ), \
       help = "this is the size of your dataset's shorter dimension (H or W), before any resampling is done;" + \
              " this also places an upper limit on the sample resolution (i.e. the max value that res_samples above can be)" )

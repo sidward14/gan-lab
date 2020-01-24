@@ -115,6 +115,7 @@ class NormalizeLayer( nn.Module ):
 # -----------------------------
 
 def concat_mbstd_layer( x, group_size = 4 ):
+  """Minibatch Standard Deviation layer."""
   _sz = x.size()
 
   # `group_size` must be less than or equal to and divisible into minibatch size;
