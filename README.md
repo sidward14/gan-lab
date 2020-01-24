@@ -26,7 +26,7 @@ This will install all necessary dependencies for you and will enable the option 
 
 ## Basic Usage on Command-line
 
-__Clone this repo__, then simply running the following to configure your model & dataset and train your chosen model:
+__Clone this repo__, then simply run the following to configure your model & dataset and train your chosen model:
   ~~~
   $ python config.py [model] [--optional_kwargs]
   $ python data_config.py [dataset] [dataset_dir] [--optional_kwargs]
