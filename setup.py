@@ -14,7 +14,7 @@ def readme( ):
 
 setup(
   name = 'gan-zoo',
-  version = '0.0.4',
+  version = '0.0.5',
   author = 'Sidhartha Parhi',
   author_email = 'sidhartha.parhi@gmail.com',
   description = "StyleGAN, ProGAN, and ResNet GANs with an intuitive API and helpful features",
