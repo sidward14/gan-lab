@@ -117,7 +117,7 @@ class NormalizeLayer( nn.Module ):
 def concat_mbstd_layer( x, group_size = 4 ):
   _sz = x.size()
 
-  # `group_size` must be less than or equal to and dvisible into minibatch size;
+  # `group_size` must be less than or equal to and divisible into minibatch size;
   # otherwise use the entire minibatch
   group_size = min( _sz[0], group_size )
   if _sz[0] % group_size != 0:
