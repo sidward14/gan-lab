@@ -12,7 +12,7 @@ to this).
 
 Note that one can always just write their own script (or Jupyter Notebook)
 where they instantiate a Learner and then train/evaluate with it
-(see ".README.md" for an example of doing this).
+(see README.md for an example of doing this).
 """
 
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ #

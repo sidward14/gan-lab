@@ -111,7 +111,9 @@ __Some Advantages of Jupyter Notebook (there are many more than this)__:
   + what learner.config parameters you want to change before training again
 + You can always stop the kernel during training and then resume again and it will work
 
+---------------------
 
+__NOTE__ that by default, the "--num_workers" argument in [config.py](./gan_zoo/config.py) is set to data-loading from just 1 subprocess; setting this to a larger number (that still falls within the constraints of your CPU(s)) will speed up the training process significantly.
 
 ## TODO (will be implemented soon):
 - [ ] Multi-GPU support

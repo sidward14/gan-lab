@@ -173,7 +173,6 @@ class StyleGenerator( StyleGAN ):
         equalized_lr = equalized_lr,
         normalize_z = normalize_z
       )
-    # TODO: This embedding approach seems to not be any more complex than simply class-conditioning the generator like you do with all the rest...check this
     else:
       self.z_to_w = StyleConditionedMappingNetwork(
         num_classes,
