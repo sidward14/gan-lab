@@ -250,7 +250,7 @@ if __name__ == '__main__':
            " however, if the dataset already comes pre-installed with a validation set (like with many torchvision-catered" + \
            " datasets such as LSUN Bedrooms or CIFAR-10), then all aspects considering validation set creation (or re-creation) are ignored," + \
            " and the 2 arguments below mean nothing (but the flag can still be used to signal that you want to train with the pre-installed validation set)" )
-  parser.add_argument( '--valid_set_pct', type = float, default = .1, \
+  parser.add_argument( '--valid_set_pct', type = float, default = .01, \
     help = "percent of training set to convert into validation set; ignored if --include_valid_set (above) == `False`;" + \
            " else if validation set already exists in dataset_dir (top), then this replaces the original validation set with this" + \
            " new one and moves the original validation set data back into the training set (you do not want to do this if goal is reproducibility," +\
