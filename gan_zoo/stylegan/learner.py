@@ -41,12 +41,13 @@ from _int import get_current_configuration, LearnerConfigCopy
 from progan.architectures import ProDiscriminator
 from progan.learner import ProGANLearner
 from utils.latent_utils import gen_rand_latent_vars
-from utils.backprop_utils import configure_adam_for_gan
+from utils.backprop_utils import calc_gp, configure_adam_for_gan
 from utils.custom_layers import Conv2dBias, LinearBias
 
 from abc import ABC
 import copy
 from pathlib import Path
+from functools import partial
 from timeit import default_timer as timer
 
 import numpy as np
@@ -72,8 +73,8 @@ NONREDEFINABLE_ATTRS = ( 'model', 'init_res', 'res_samples', 'res_dataset', 'len
                          'beta_trunc_trick', 'psi_trunc_trick', 'cutoff_trunc_trick',
                          'len_dlatent', 'mapping_num_fcs', 'mapping_lrmul', )
 
-REDEFINABLE_FROM_LEARNER_ATTRS = ( 'batch_size', 'loss', 'optimizer', 'lr_sched',
-                                   'latent_distribution', )
+REDEFINABLE_FROM_LEARNER_ATTRS = ( 'batch_size', 'loss', 'gradient_penalty',
+                                   'optimizer', 'lr_sched', 'latent_distribution', )
 
 COMPUTE_EWMA_VIA_HALFLIFE = True
 EWMA_SMOOTHING_HALFLIFE = 10.
@@ -177,16 +178,27 @@ class StyleGANLearner( ProGANLearner ):
       self.gen_model.to( self.config.dev )
       self.disc_model.to( self.config.dev )
 
-      # Optimizer:
-      # TODO: You will probably have to separate out mapping network (i.e. `self.z_to_w`) and synthesis network
-      #       if you want to efficiently and cleanly implement the EWMA of W for the Truncation Trick.
-      self._set_optimizer( )
-
       self.batch_size = self.config.bs_dict[ self.gen_model.curr_res ]
 
       if self.cond_gen:
         self.labels_one_hot_disc = self._tensor( self.batch_size, self.num_classes )
         self.labels_one_hot_gen = self._tensor( self.batch_size * self.config.gen_bs_mult, self.num_classes )
+
+      # Loss Function:
+      self._loss = config.loss.casefold()
+      self._set_loss( )
+
+      # Gradient Regularizer:
+      self.gp_func = partial(
+        calc_gp,
+        gp_type = self._gradient_penalty,
+        nn_disc = self.disc_model,
+        lda = self.config.lda,
+        gamma = self.config.gamma
+      )
+
+      # Optimizer:
+      self._set_optimizer( )
 
       # Epsilon Loss to punish possible outliers from training distribution:
       self.eps = False
@@ -202,7 +214,6 @@ class StyleGANLearner( ProGANLearner ):
       #        "  please do so via altering your instantiated StyleGANLearner().config's attributes." )
       print( '\n    Ready to train!\n' )
 
-  # TODO: You have a more diverse set of trainable parameters for StyleGAN. Make this work for it.
   def apply_lagged_weights( self, m ):
     # TODO: Include support for other learnable layers such as BatchNorm
     _keys = m.state_dict().keys()

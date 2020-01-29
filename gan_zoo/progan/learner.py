@@ -40,7 +40,7 @@ from .architectures import ProGenerator, ProDiscriminator
 from _int import get_current_configuration, LearnerConfigCopy
 from resnetgan.learner import GANLearner
 from utils.latent_utils import gen_rand_latent_vars
-from utils.backprop_utils import configure_adam_for_gan
+from utils.backprop_utils import calc_gp, configure_adam_for_gan
 from utils.custom_layers import Conv2dBias, LinearBias
 
 from abc import ABC
@@ -48,6 +48,7 @@ import copy
 import logging
 import warnings
 from pathlib import Path
+from functools import partial
 from timeit import default_timer as timer
 
 import numpy as np
@@ -70,8 +71,8 @@ NONREDEFINABLE_ATTRS = ( 'model', 'init_res', 'res_samples', 'res_dataset', 'len
                          'blur_type', 'nonlinearity', 'use_equalized_lr', 'normalize_z',
                          'use_pixelnorm', 'mbstd_group_size', 'use_ewma_gen', )
 
-REDEFINABLE_FROM_LEARNER_ATTRS = ( 'batch_size', 'loss', 'optimizer', 'lr_sched',
-                                   'latent_distribution', )
+REDEFINABLE_FROM_LEARNER_ATTRS = ( 'batch_size', 'loss', 'gradient_penalty',
+                                   'optimizer', 'lr_sched', 'latent_distribution', )
 
 COMPUTE_EWMA_VIA_HALFLIFE = True
 EWMA_SMOOTHING_HALFLIFE = 10.
@@ -171,14 +172,27 @@ class ProGANLearner( GANLearner ):
       self.gen_model.to( self.config.dev )
       self.disc_model.to( self.config.dev )
 
-      # Optimizer:
-      self._set_optimizer( )
-
       self.batch_size = self.config.bs_dict[ self.gen_model.curr_res ]
 
       if self.cond_gen:
         self.labels_one_hot_disc = self._tensor( self.batch_size, self.num_classes )
         self.labels_one_hot_gen = self._tensor( self.batch_size * self.config.gen_bs_mult, self.num_classes )
+
+      # Loss Function:
+      self._loss = config.loss.casefold()
+      self._set_loss( )
+
+      # Gradient Regularizer:
+      self.gp_func = partial(
+        calc_gp,
+        gp_type = self._gradient_penalty,
+        nn_disc = self.disc_model,
+        lda = self.config.lda,
+        gamma = self.config.gamma
+      )
+
+      # Optimizer:
+      self._set_optimizer( )
 
       # Epsilon Loss to punish possible outliers from training distribution:
       self.eps = False
@@ -370,9 +384,8 @@ class ProGANLearner( GANLearner ):
                   _yb
                 )
               # TODO: Include gradient penalty despite the fact that this method is under @torch.no_grad().
-              # if self.gp:
-              #   metrics_tensors['generator loss'][:len(zb), n] += \
-              #     calc_gp( self.disc_model, _xgenb, xb )
+              # if self.gradient_penalty is not None:
+              #   metrics_tensors['generator loss'][:len(zb), n] += self.gp_func( _xgenb, xb )
           self.disc_metrics_num += 1 if n == ( _len_z_valid_dl - 1 ) else 0
     metrics_vals = [
       ( vals_tensor.sum() / _len_z_valid_ds ).item() \
@@ -686,19 +699,16 @@ class ProGANLearner( GANLearner ):
           discriminative_gen = self.disc_model( _xgenb )
           discriminative_real = self.disc_model( xb )
 
-        if self.loss in ( 'wgan', 'wgan-gp', ):
-          # loss_train_disc = self.loss_func_disc(
-          #   self.disc_model( _xgenb ),
-          #   self.disc_model( xb )
-          # )
+        if self.loss == 'wgan':
           loss_train_disc = ( discriminative_gen - discriminative_real ).mean()
-        elif self.loss == 'minimax':
-          raise NotImplementedError( 'Minimax loss function not yet implemented.' )
-        elif self.loss == 'modified minimax':
-          raise NotImplementedError( 'Modified Minimax loss function not yet implemented.' )
-        else:
-          raise ValueError( "Unsupported loss function.\n" + \
-                            "Currently supported Loss Functions are: [ 'wgan-gp', 'wgan', 'minimax', 'modified minimax' ]" )
+        elif self.loss in ( 'nonsaturating', 'minimax' ):
+          loss_train_disc = \
+            F.binary_cross_entropy_with_logits( input = discriminative_gen,
+                                                target = self._dummy_target_gen,
+                                                reduction = 'mean' ) + \
+            F.binary_cross_entropy_with_logits( input = discriminative_real,
+                                                target = self._dummy_target_real,
+                                                reduction = 'mean' )
 
         if self.ac:
           loss_train_disc += \
@@ -706,7 +716,7 @@ class ProGANLearner( GANLearner ):
               self.loss_func_aux( real_preds, real_labels )
             ).mean() * self.config.ac_disc_scale
 
-        if self.gp:
+        if self.gradient_penalty is not None:
           loss_train_disc += self.calc_gp( _xgenb, xb )
 
         if self.eps:
@@ -771,18 +781,20 @@ class ProGANLearner( GANLearner ):
         else:
           loss_train_gen = self.disc_model( self.gen_model( zb ) )
 
-        if self.loss in ( 'wgan', 'wgan-gp', ):
-          # loss_train_gen = self.loss_func_gen(
-          #   self.disc_model( self.gen_model( zb ) )
-          # )
+        if self.loss == 'wgan':
           loss_train_gen = -loss_train_gen.mean()
+        elif self.loss == 'nonsaturating':
+          loss_train_gen = F.binary_cross_entropy_with_logits(
+            input = loss_train_gen,
+            target = self._dummy_target_real,
+            reduction = 'mean'
+          )
         elif self.loss == 'minimax':
-          raise NotImplementedError( 'Minimax loss function not yet implemented.' )
-        elif self.loss == 'modified minimax':
-          raise NotImplementedError( 'Modified Minimax loss function not yet implemented.' )
-        else:
-          raise ValueError( "Unsupported loss function.\n" + \
-                            "Currently supported Loss Functions are: [ 'wgan-gp', 'wgan', 'minimax', 'modified minimax' ]" )
+          loss_train_gen = -F.binary_cross_entropy_with_logits(
+            input = loss_train_gen,
+            target = self._dummy_target_gen,
+            reduction = 'mean'
+          )
 
         if self.ac:
           loss_train_gen += self.loss_func_aux( gen_preds, gen_labels ).mean() * self.config.ac_gen_scale

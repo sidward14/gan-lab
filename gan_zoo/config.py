@@ -103,8 +103,15 @@ if __name__ == '__main__':
   parser.add_argument( '--num_gen_iters', type = int, default = 1, \
     help = 'number of generator iterations in one main iteration through generator and discriminator' )
 
-  parser.add_argument( '--loss', type = str.casefold, default = 'wgan-gp', choices = [ 'wgan-gp', 'wgan', 'minimax', 'modified minimax' ], \
+  parser.add_argument( '--loss', type = str.casefold, default = 'wgan', choices = [ 'wgan', 'nonsaturating', 'minimax' ], \
     help = 'type of loss function to use for the generator and discriminator' )
+  parser.add_argument( '--gradient_penalty', type = str.casefold, default = 'wgan-gp', choices = [ None, 'wgan-gp', 'r1', 'r2' ], \
+    help = "type of gradient regularizer to use; options 'R1' and 'R2' are the zero-centered gradient regularizers from" + \
+           " `Which Training Methods for GANs do actually Converge?` (Mescheder et al., 2018)" )
+  parser.add_argument( '--lda', type = float, default = 10., help = 'gradient penalty multiplicative coefficient' )
+  parser.add_argument( '--gamma', type = float, default = 1., \
+    help = "gradient penalty degree of Lipschitz constraint; multiclass datasets may benefit from gamma > 1. to help mitigate ghosting;" + \
+           " ignored if --gradient_penalty is not set to 'wgan-gp'" )
 
   parser.add_argument( '--lr_sched_custom', type = str.casefold, default = None, \
     help = 'learning rate scheduler for custom --lr_sched argument; otherwise ignored; this should be a lambda function string' )
@@ -121,10 +128,6 @@ if __name__ == '__main__':
     help = 'type of upsampling that the generator conducts to go from latent space to image space' )
   parser.add_argument( '--model_downsample_type', type = str.casefold, default = 'average', choices = [ 'nearest', 'average', 'box', 'bilinear' ], \
     help = 'type of downsampling that the discriminator conducts to go from image space to final feature space' )
-
-  parser.add_argument( '--gamma', type = float, default = 1., \
-    help = 'gradient penalty degree of Lipschitz constraint; multiclass datasets may benefit from gamma > 1. to help mitigate ghosting' )
-  parser.add_argument( '--lda', type = float, default = 10., help = 'gradient penalty multiplicative coefficient' )
 
   parser.add_argument( '--latent_distribution', type = str.casefold, default = 'normal', choices = [ 'normal', 'uniform' ], \
     help = 'to sample elements of latent vector from normal distribution or uniform distribution' )

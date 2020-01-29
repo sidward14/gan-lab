@@ -46,14 +46,18 @@ from _int import get_current_configuration, LearnerConfigCopy, FMAP_SAMPLES
 # from progan.architectures import ProDiscriminator
 from utils.latent_utils import gen_rand_latent_vars
 from utils.backprop_utils import wasserstein_distance_gen, \
+                                 nonsaturating_loss_gen, \
+                                 minimax_loss_gen, \
                                  wasserstein_distance_disc, \
-                                 wasserstein_distance_with_gp_disc, \
+                                 minimax_loss_disc, \
+                                 calc_gp, \
                                  configure_adam_for_gan
 from utils.custom_layers import NearestPool2d, BilinearPool2d
 
 import logging
 import warnings
 from pathlib import Path
+from functools import partial
 from timeit import default_timer as timer
 
 import numpy as np
@@ -72,7 +76,8 @@ NONREDEFINABLE_ATTRS = ( 'model', 'res_samples', 'res_dataset', 'len_latent',
                          'model_upsample_type', 'model_downsample_type', 'align_corners',
                          'blur_type', 'nonlinearity', 'use_equalized_lr', )
 
-REDEFINABLE_FROM_LEARNER_ATTRS = ( 'batch_size', 'loss', 'optimizer', 'lr_sched', )
+REDEFINABLE_FROM_LEARNER_ATTRS = ( 'batch_size', 'loss', 'gradient_penalty',
+                                   'optimizer', 'lr_sched', )
 
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ #
 
@@ -107,7 +112,7 @@ class GANLearner( object ):
     self.pretrained_model = False
 
     if _model_selected:
-      self.batch_size = config.batch_size
+      self.batch_size = self.config.batch_size
     self.curr_dataset_batch_num = 0
     self.curr_epoch_num = 0
     self.curr_valid_num = 0
@@ -170,11 +175,11 @@ class GANLearner( object ):
 
     # Architecture selection:
     if _model_selected:
-      if config.res_samples == 64:
+      if self.config.res_samples == 64:
         _gen_model = Generator64PixResnet
         _disc_model = DiscriminatorAC64PixResnet if self.ac else Discriminator64PixResnet
         self.fmap_g = FMAP_G; self.fmap_d = FMAP_D
-      elif config.res_samples == 32:
+      elif self.config.res_samples == 32:
         _gen_model = Generator32PixResnet
         _disc_model = DiscriminatorAC32PixResnet if self.ac else Discriminator32PixResnet
         self.fmap_g = FMAP_G*2; self.fmap_d = FMAP_D*2
@@ -192,26 +197,26 @@ class GANLearner( object ):
     self.disc_model = None
     if _model_selected:
       self.gen_model = _gen_model(
-        len_latent = config.len_latent,
+        len_latent = self.config.len_latent,
         fmap = self.fmap_g,
         upsampler = self.gen_model_upsampler,
-        blur_type = config.blur_type,
+        blur_type = self.config.blur_type,
         nl = self.nl,
         num_classes = self.num_classes_gen,
-        equalized_lr = config.use_equalized_lr,
+        equalized_lr = self.config.use_equalized_lr,
       )
 
       self.disc_model = _disc_model(
         fmap = self.fmap_d,
         pooler = self.disc_model_downsampler,
-        blur_type = config.blur_type,
+        blur_type = self.config.blur_type,
         nl = self.nl,
         num_classes = self.num_classes_disc,
-        equalized_lr = config.use_equalized_lr,
+        equalized_lr = self.config.use_equalized_lr,
       )
 
-      self.gen_model.to( config.dev )
-      self.disc_model.to( config.dev )
+      self.gen_model.to( self.config.dev )
+      self.disc_model.to( self.config.dev )
 
       assert self.gen_model.res == self.disc_model.res
 
@@ -221,11 +226,23 @@ class GANLearner( object ):
 
     if _model_selected and self.cond_gen:
       self.labels_one_hot_disc = self._tensor( self.batch_size, self.num_classes )
-      self.labels_one_hot_gen = self._tensor( self.batch_size * config.gen_bs_mult, self.num_classes )
+      self.labels_one_hot_gen = self._tensor( self.batch_size * self.config.gen_bs_mult, self.num_classes )
 
     # Loss Function:
-    self._loss = config.loss.casefold()
-    self._set_loss( )
+    if _model_selected:
+      self._loss = config.loss.casefold()
+      self._set_loss( )
+
+    # Gradient Regularizer:
+    self._gradient_penalty = config.gradient_penalty
+    if _model_selected:
+      self.gp_func = partial(
+        calc_gp,
+        gp_type = self._gradient_penalty,
+        nn_disc = self.disc_model,
+        lda = self.config.lda,
+        gamma = self.config.gamma
+      )
 
     # Auxiliary Classifier:
     if self.ac:
@@ -318,10 +335,8 @@ class GANLearner( object ):
       valid_dataiter = iter( valid_dl )
     if z_valid_dl is not None:
       z_valid_dataiter = iter( z_valid_dl )
-      # _len_z_valid_dl = len( z_valid_dl )
-      _len_z_valid_dl = 5
-      # _len_z_valid_ds = len( z_valid_dl.dataset )
-      _len_z_valid_ds = _len_z_valid_dl * self.batch_size
+      _len_z_valid_dl = len( z_valid_dl )
+      _len_z_valid_ds = len( z_valid_dl.dataset )
 
     if not self.grid_inputs_constructed and 'image grid' in metrics:
       assert ( self.config.img_grid_sz**2 <= _len_z_valid_ds )
@@ -414,9 +429,8 @@ class GANLearner( object ):
                   _yb
                 )
               # TODO: Include gradient penalty despite the fact that this method is under @torch.no_grad().
-              # if self.gp:
-              #   metrics_tensors['generator loss'][:len(zb), n] += \
-              #     calc_gp( self.disc_model, _xgenb, xb )
+              # if self.gradient_penalty is not None:
+              #   metrics_tensors['generator loss'][:len(zb), n] += self.gp_func( _xgenb, xb )
           self.disc_metrics_num += 1 if n == ( _len_z_valid_dl - 1 ) else 0
     metrics_vals = [
       ( vals_tensor.sum() / _len_z_valid_ds ).item() \
@@ -518,15 +532,20 @@ class GANLearner( object ):
         else:
           loss_train_gen = self.disc_model( self.gen_model( zb ) )
 
-        if self.loss in ( 'wgan', 'wgan-gp', ):
-          # loss_train_gen = self.loss_func_gen(
-          #   self.disc_model( self.gen_model( zb ) )
-          # )
+        if self.loss == 'wgan':
           loss_train_gen = -loss_train_gen.mean()
+        elif self.loss == 'nonsaturating':
+          loss_train_gen = F.binary_cross_entropy_with_logits(
+            input = loss_train_gen,
+            target = self._dummy_target_real,
+            reduction = 'mean'
+          )
         elif self.loss == 'minimax':
-          raise NotImplementedError( 'Minimax loss function not yet fully implemented.' )
-        elif self.loss == 'modified minimax':
-          raise NotImplementedError( 'Modified Minimax loss function not yet implemented.' )
+          loss_train_gen = -F.binary_cross_entropy_with_logits(
+            input = loss_train_gen,
+            target = self._dummy_target_gen,
+            reduction = 'mean'
+          )
 
         if self.ac:
           loss_train_gen += self.loss_func_aux( gen_preds, gen_labels ).mean() * self.config.ac_gen_scale
@@ -602,16 +621,16 @@ class GANLearner( object ):
           discriminative_gen = self.disc_model( _xgenb )
           discriminative_real = self.disc_model( xb )
 
-        if self.loss in ( 'wgan', 'wgan-gp', ):
-          # loss_train_disc = self.loss_func_disc(
-          #   self.disc_model( _xgenb ),
-          #   self.disc_model( xb )
-          # )
+        if self.loss == 'wgan':
           loss_train_disc = ( discriminative_gen - discriminative_real ).mean()
-        elif self.loss == 'minimax':
-          raise NotImplementedError( 'Minimax loss function not yet fully implemented.' )
-        elif self.loss == 'modified minimax':
-          raise NotImplementedError( 'Modified Minimax loss function not yet implemented.' )
+        elif self.loss in ( 'nonsaturating', 'minimax' ):
+          loss_train_disc = \
+            F.binary_cross_entropy_with_logits( input = discriminative_gen,
+                                                target = self._dummy_target_gen,
+                                                reduction = 'mean' ) + \
+            F.binary_cross_entropy_with_logits( input = discriminative_real,
+                                                target = self._dummy_target_real,
+                                                reduction = 'mean' )
 
         if self.ac:
           loss_train_disc += \
@@ -619,7 +638,7 @@ class GANLearner( object ):
               self.loss_func_aux( real_preds, real_labels )
             ).mean() * self.config.ac_disc_scale
 
-        if self.gp:
+        if self.gradient_penalty is not None:
           loss_train_disc += self.calc_gp( _xgenb, xb )
 
         # Backprop:
@@ -662,45 +681,52 @@ class GANLearner( object ):
   # .......................................................................... #
 
   def calc_gp( self, gen_data, real_data ):
-    eps = torch.rand( self.batch_size, 1, 1, 1, device = self.config.dev )
+    if self.gradient_penalty in ( 'wgan-gp', 'r1', ):
+      real_data = real_data.view(
+        -1, FMAP_SAMPLES, real_data.shape[2], real_data.shape[3]
+      )
+    if self.gradient_penalty in ( 'wgan-gp', 'r2', ):
+      gen_data = gen_data.view(
+        -1, FMAP_SAMPLES, gen_data.shape[2], gen_data.shape[3]
+      )
 
-    gen_data = gen_data.view(
-      -1, FMAP_SAMPLES, gen_data.shape[2], gen_data.shape[3]
-    )
-    real_data = real_data.view(
-      -1, FMAP_SAMPLES, real_data.shape[2], real_data.shape[3]
-    )
-
-    # linear interpolation
-    # TODO: Implement class-conditioning (in the discriminator) option (Mirza & Osindero, 2014) for the interpolate.
-    xb_interp = ( eps * gen_data.detach() + \
-                ( 1 - eps ) * real_data.detach() ).to( self.config.dev )
+    # whether to penalize the discriminator gradients on the real distribution, fake distribution, or an interpolation of both
+    # TODO: Implement class-conditioning (in the discriminator) option (Mirza & Osindero, 2014).
+    if self.gradient_penalty == 'wgan-gp':
+      eps = torch.rand( self.batch_size, 1, 1, 1, device = self.config.dev )
+      xb = ( eps * gen_data.detach() + \
+           ( 1 - eps ) * real_data.detach() ).to( self.config.dev )
+    elif self.gradient_penalty == 'r1':
+      xb = real_data.detach().to( self.config.dev )
+    elif self.gradient_penalty == 'r2':
+      xb = gen_data.detach().to( self.config.dev )
 
     # now start tracking in the computation graph again
-    xb_interp.requires_grad_( True )
+    xb.requires_grad_( True )
 
     if isinstance( self.disc_model, ( DiscriminatorAC32PixResnet,
                                       DiscriminatorAC64PixResnet, ) ):
-      outb_interp, _ = self.disc_model( xb_interp )
+      outb, _ = self.disc_model( xb )
     else:
-      outb_interp = self.disc_model( xb_interp )
-    # elif isinstance( self.disc_model, ( Discriminator32PixResnet, Discriminator64PixResnet,
-    #                                     ProDiscriminator, StyleDiscriminator, ) ):
-    # print( xb_interp.requires_grad, outb_interp.requires_grad )
-    outb_interp_grads = torch.autograd.grad(
-      outb_interp,
-      xb_interp,
+      outb = self.disc_model( xb )
+    # print( xb.requires_grad, outb.requires_grad )
+    outb_grads = torch.autograd.grad(
+      outb,
+      xb,
       grad_outputs = torch.ones( self.batch_size ).to( self.config.dev ),
       create_graph = True, retain_graph = True, only_inputs = True )[0]
 
-    if self.config.gamma != 1.:
-      outb_interp_gp = \
-        ( ( outb_interp_grads.norm( 2, dim = 1 ) - self.config.gamma )**2 / self.config.gamma**2 ).mean() * self.config.lda
-    else:
-      outb_interp_gp = \
-        ( ( outb_interp_grads.norm( 2, dim = 1 ) - 1. )**2 ).mean() * self.config.lda
+    if self.gradient_penalty == 'wgan-gp':
+      if self.config.gamma != 1.:
+        outb_gp = \
+          ( ( outb_grads.norm( 2, dim = 1 ) - self.config.gamma )**2 / self.config.gamma**2 ).mean() * self.config.lda
+      else:
+        outb_gp = \
+          ( ( outb_grads.norm( 2, dim = 1 ) - 1. )**2 ).mean() * self.config.lda / 2.
+    elif self.gradient_penalty in ( 'r1', 'r2', ):
+      outb_gp = ( outb_grads.norm( 2, dim = 1 )**2 ).mean() * self.config.lda / 2.
 
-    return outb_interp_gp
+    return outb_gp
 
   # .......................................................................... #
 
@@ -771,6 +797,21 @@ class GANLearner( object ):
                         "Supported Optimizers are: [ 'adam', 'rmsprop', 'momentum', 'sgd' ]" )
 
   @property
+  def gradient_penalty( self ):
+    return self._gradient_penalty.casefold()
+
+  @gradient_penalty.setter
+  def gradient_penalty( self, new_gradient_penalty ):
+    self._gradient_penalty = new_gradient_penalty.casefold()
+    self.gp_func = partial(
+      calc_gp,
+      gp_type = self._gradient_penalty,
+      nn_disc = self.disc_model,
+      lda = self.config.lda,
+      gamma = self.config.gamma
+    )
+
+  @property
   def loss( self ):
     return self._loss
 
@@ -780,23 +821,22 @@ class GANLearner( object ):
     self._set_loss( )
 
   def _set_loss( self ):
-    self.gp = False
     if self._loss == 'wgan':
-      self.loss_func_disc = wasserstein_distance_disc
       self.loss_func_gen = wasserstein_distance_gen
-    elif self._loss == 'wgan-gp':
-      self.gp = True
       self.loss_func_disc = wasserstein_distance_disc
-      self.loss_func_gen = wasserstein_distance_gen
-    elif self._loss == 'minimax':
-      self.loss_func_disc = F.binary_cross_entropy_with_logits
-      self.loss_func_gen = None # TODO:
-      raise NotImplementedError( 'Minimax loss function not yet fully implemented.' )
-    elif self._loss == 'modified minimax':
-      raise NotImplementedError( 'Modified Minimax loss function not yet implemented.' )  # TODO:
+      self._dummy_target_gen = None
+      self._dummy_target_real = None
+    elif self._loss in ( 'nonsaturating', 'minimax', ):
+      self.loss_func_disc = minimax_loss_disc
+      self._dummy_target_gen = torch.zeros( self.batch_size ).to( self.config.dev )
+      self._dummy_target_real = torch.ones( self.batch_size ).to( self.config.dev )
+      if self._loss == 'nonsaturating':
+        self.loss_func_gen = nonsaturating_loss_gen
+      elif self._loss == 'minimax':
+        self.loss_func_gen = minimax_loss_gen
     else:
       raise ValueError( "config does not support this loss.\n" + \
-                        "Currently supported Loss Functions are: [ 'wgan-gp', 'wgan', 'minimax', 'modified minimax' ]" )
+                        "Currently supported Loss Functions are: [ 'wgan', 'nonsaturating', 'minimax' ]" )
 
   @property
   def model( self ):
@@ -917,7 +957,7 @@ class GANLearner( object ):
                 'opt_gen_state_dict': self.opt_gen.state_dict(),
                 'opt_disc_state_dict': self.opt_disc.state_dict(),
                 'loss': self.loss,
-                'gp': self.gp,
+                'gradient_penalty': self.gradient_penalty,
                 'batch_size': self.batch_size,
                 'curr_dataset_batch_num': self.curr_dataset_batch_num,
                 'curr_epoch_num': self.curr_epoch_num,
@@ -980,7 +1020,8 @@ class GANLearner( object ):
     self.opt_disc.load_state_dict( checkpoint['opt_disc_state_dict'] )
 
     self.loss = checkpoint['loss']
-    self.gp = checkpoint['gp']
+
+    self.gradient_penalty = checkpoint['gradient_penalty']
 
     self.batch_size = checkpoint['batch_size']
     self.curr_dataset_batch_num = checkpoint['curr_dataset_batch_num']

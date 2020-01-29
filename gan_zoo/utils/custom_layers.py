@@ -196,7 +196,7 @@ class Conv2dEx( nn.Module ):
     # Biases:
     self.bias = None
     if include_bias:
-      # init biases as 0 according to WGAN-GP and ProGAN implementations.
+      # init biases as 0, according to official implementations.
       self.conv2d.bias.data.fill_( 0 )
 
   def forward( self, x ):
@@ -276,7 +276,7 @@ class LinearEx( nn.Module ):
     # Biases:
     self.bias = None
     if include_bias:
-      # init biases as 0 according to WGAN-GP and ProGAN implementations.
+      # init biases as 0, according to official implementations.
       self.linear.bias.data.fill_( 0 )
 
   def forward( self, x ):
