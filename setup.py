@@ -14,10 +14,10 @@ def readme( ):
 
 setup(
   name = 'gan-zoo',
-  version = '0.0.7',
+  version = '0.0.8',
   author = 'Sidhartha Parhi',
   author_email = 'sidhartha.parhi@gmail.com',
-  description = "StyleGAN, ProGAN, and ResNet GANs with an intuitive API and helpful features",
+  description = "StyleGAN, ProGAN, and ResNet GANs",
   long_description = readme( ),
   long_description_content_type = 'text/markdown',
   url = "https://github.com/sidward14/gan-zoo",

@@ -2,6 +2,10 @@
 
 #++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++#
 
+# NOTE: Make sure to configure for ResNet GAN with
+#       '$ python config.py resnetgan [--optional_kwargs]'
+#       before running this script.
+
 from gan_zoo import get_current_configuration
 from gan_zoo.utils.data_utils import prepare_dataset, prepare_dataloader
 from gan_zoo.resnetgan.learner import GANLearner

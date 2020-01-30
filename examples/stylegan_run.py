@@ -2,6 +2,10 @@
 
 #++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++#
 
+# NOTE: Make sure to configure for StyleGAN with
+#       '$ python config.py stylegan [--optional_kwargs]'
+#       before running this script.
+
 from gan_zoo import get_current_configuration
 from gan_zoo.utils.data_utils import prepare_dataset, prepare_dataloader
 from gan_zoo.stylegan.learner import StyleGANLearner
