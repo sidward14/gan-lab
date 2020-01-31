@@ -20,7 +20,7 @@ setup(
   description = "StyleGAN, ProGAN, and ResNet GANs",
   long_description = readme( ),
   long_description_content_type = 'text/markdown',
-  keywords = 'GAN GAN-Zoo ML generative neural model'
+  keywords = 'GAN GAN-Zoo ML generative neural model',
   url = "https://github.com/sidward14/gan-zoo",
   packages = [
     'gan_zoo',
