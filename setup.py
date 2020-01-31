@@ -14,12 +14,13 @@ def readme( ):
 
 setup(
   name = 'gan-zoo',
-  version = '0.0.8',
+  version = '0.1.0',
   author = 'Sidhartha Parhi',
   author_email = 'sidhartha.parhi@gmail.com',
   description = "StyleGAN, ProGAN, and ResNet GANs",
   long_description = readme( ),
   long_description_content_type = 'text/markdown',
+  keywords = 'GAN GAN-Zoo ML generative neural model'
   url = "https://github.com/sidward14/gan-zoo",
   packages = [
     'gan_zoo',
