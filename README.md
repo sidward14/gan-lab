@@ -24,6 +24,8 @@ In your virtual environment (e.g. a conda virtual environment), run:
   ~~~
 This will install all necessary dependencies for you and will enable the option to use the package like an API (see "Jupyter Notebook (or Custom Script) Usage" below).
 
+If you do not wish to use the package like an API (i.e. you just want use the repo by means of running [train.py](./gan_zoo/train.py)), run '$ pip install -r requirements.txt' instead.
+
 ## Basic Usage on Command-line
 
 __Clone this repo__, then simply run the following to configure your model & dataset and train your chosen model:
@@ -33,6 +35,8 @@ __Clone this repo__, then simply run the following to configure your model & dat
   $ python train.py
   ~~~
 If you would like to see a list of what each argument does, run '$ python config.py [model] -h' or '$ python data_config.py [dataset] [dataset_dir] -h' on the command-line.
+
+__NOTE__: Make sure that all images you would like to use in your model are located directly inside the _dataset_dir_ parent directory before calling [data_config.py](./gan_zoo/data_config.py). Any images within subdirectories of _dataset_dir_ (except for subdirectories named "train" or "valid") will not be used in your model.
 
 ### ProGAN Example:
 
@@ -113,7 +117,7 @@ __Some Advantages of Jupyter Notebook (there are many more than this)__:
 
 --------------------------------------------------------------------------------
 
-__NOTE__ that by default, the "--num_workers" argument in [config.py](./gan_zoo/config.py) is set to data-loading from just 1 subprocess; setting this to a larger number (that still falls within the constraints of your CPU(s)) will speed up training significantly. :slightly_smiling_face:
+__NOTE__ that by default, the _--num_workers_ argument in [config.py](./gan_zoo/config.py) is set to data-loading from just 1 subprocess; setting this to a larger number (that still falls within the constraints of your CPU(s)) will speed up training significantly. :slightly_smiling_face:
 
 ## TODO (will be implemented soon):
 - [ ] Multi-GPU support
