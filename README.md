@@ -10,7 +10,7 @@ __Currently supports:__
 + ProGAN (https://arxiv.org/pdf/1710.10196.pdf)
 + ResNet GANs
 
-Each GAN model's default settings exactly emulates its respective most recent official implementation, but at the same time this package features a simple interface ([config.py](./gan_zoo/config.py)) where the user can quickly tune an extensive list of hyperparameter settings to their choosing.
+Each GAN model's default settings emulates its most recent official implementation, but at the same time this package features a simple interface ([config.py](./gan_zoo/config.py)) where the user can quickly tune an extensive list of hyperparameter settings to their choosing.
 
 Comes with additional features such as supervised learning capabilities, an easy-to-use interface for saving/loading the model state, flexible learning rate scheduling (and re-scheduling) capabilities, and more.
 
@@ -24,7 +24,7 @@ In your virtual environment (e.g. a conda virtual environment), run:
   ~~~
 This will install all necessary dependencies for you and will enable the option to use the package like an API (see "Jupyter Notebook (or Custom Script) Usage" below).
 
-If you do not wish to use the package like an API (i.e. you just want use the repo by means of running [train.py](./gan_zoo/train.py)), run '$ pip install -r requirements.txt' instead.
+If you do not wish to use the package like an API (i.e. you just want to install dependencies and then just use the repo by means of running [train.py](./gan_zoo/train.py)), run '$ pip install -r requirements.txt' instead.
 
 ## Basic Usage on Command-line
 
@@ -36,7 +36,7 @@ __Clone this repo__, then simply run the following to configure your model & dat
   ~~~
 If you would like to see a list of what each argument does, run '$ python config.py [model] -h' or '$ python data_config.py [dataset] [dataset_dir] -h' on the command-line.
 
-__NOTE__: Make sure that all images you would like to use in your model are located directly inside the _dataset_dir_ parent directory before calling [data_config.py](./gan_zoo/data_config.py). Any images within subdirectories of _dataset_dir_ (except for subdirectories named "train" or "valid") will not be used in your model.
+__NOTE__: Make sure that all images you would like to use in your model are located directly inside the _dataset_dir_ parent directory before running [data_config.py](./gan_zoo/data_config.py). Any images within subdirectories of _dataset_dir_ (except for the subdirectories named "train" or "valid" that get created when you run [data_config.py](./gan_zoo/data_config.py)) will not be used when training your model.
 
 ### ProGAN Example:
 
