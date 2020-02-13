@@ -869,7 +869,7 @@ class GANLearner( object ):
                   f"size {self.config.len_latent}. Total input size must therefore be {self.config.len_latent + self.num_classes_gen}."
         raise IndexError( message )
 
-    z_test = z_test.to( self.config.dev )
+    # z_test = z_test.to( self.config.dev )
     x_test = self.gen_model( z_test ).squeeze()
 
     if label is not None:
@@ -878,7 +878,7 @@ class GANLearner( object ):
     logger = logging.getLogger()
     _old_level = logger.level
     logger.setLevel( 100 )  # ignores potential "clipping input data" warning
-    plt.imshow( ( ( ( x_test[ 0 ] ) \
+    plt.imshow( ( ( ( x_test ) \
                         .cpu().detach() * self._ds_std ) + self._ds_mean ) \
                         .numpy().transpose( 1, 2, 0 ), interpolation = 'none'
     )

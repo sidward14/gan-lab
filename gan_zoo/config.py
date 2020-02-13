@@ -108,7 +108,8 @@ if __name__ == '__main__':
   parser.add_argument( '--gradient_penalty', type = str.casefold, default = 'wgan-gp', choices = [ None, 'wgan-gp', 'r1', 'r2' ], \
     help = "type of gradient regularizer to use; options 'R1' and 'R2' are the zero-centered gradient regularizers from" + \
            " `Which Training Methods for GANs do actually Converge?` (Mescheder et al., 2018)" )
-  parser.add_argument( '--lda', type = float, default = 10., help = 'gradient penalty multiplicative coefficient' )
+  parser.add_argument( '--lda', type = float, default = 10., \
+    help = 'gradient penalty multiplicative coefficient (for the `wgan-gp`, `r1`, and `r2` --gradient_penalty options above)' )
   parser.add_argument( '--gamma', type = float, default = 1., \
     help = "gradient penalty degree of Lipschitz constraint; multiclass datasets may benefit from gamma > 1. to help mitigate ghosting;" + \
            " ignored if --gradient_penalty is not set to 'wgan-gp'" )

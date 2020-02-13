@@ -10,9 +10,9 @@ __Currently supports:__
 + ProGAN (https://arxiv.org/pdf/1710.10196.pdf)
 + ResNet GANs
 
-Each GAN model's default settings emulates its most recent official implementation, but at the same time this package features a simple interface ([config.py](./gan_zoo/config.py)) where the user can quickly tune an extensive list of hyperparameter settings to their choosing.
+Each GAN model's default settings emulates its most recent official implementation, but at the same time this package features a simple interface ([config.py](./gan_zoo/config.py)) where the user can quickly tune an extensive list of hyperparameter settings to his/her choosing.
 
-Comes with additional features such as supervised learning capabilities, an easy-to-use interface for saving/loading the model state, flexible learning rate scheduling (and re-scheduling) capabilities, and more.
+Comes with additional features such as supervised learning capabilities, flexible learning rate scheduling (and re-scheduling) capabilities, an easy-to-use interface for saving/loading the model/learner state (e.g. for transfer learning or for evaluation at a later time), etc.
 
 This package aims for an intuitive API without sacrificing any complexity anywhere.
 
@@ -40,7 +40,7 @@ __NOTE__: Make sure that all images you would like to use in your model are loca
 
 ### ProGAN Example:
 
-A ProGAN Generator that yields 128x128 images _(higher resolutions coming soon)_ like the ones below can be created by running the following 3 lines:
+A ProGAN Generator that yields 128x128 images _(higher resolutions coming once model is done training in Google Colab with 16 GB GPU Memory!)_ like the ones below can be created by running the following 3 lines:
   ~~~
   $ python config.py progan --res_samples=128 --num_main_iters=1050000 --batch_size=8
   $ python data_config.py CelebA-HQ path/to/datasets/celeba_hq --enable_mirror_augmentation
@@ -55,6 +55,8 @@ A ProGAN Generator that yields 128x128 images _(higher resolutions coming soon)_
 By default, the image grid above is saved periodically during training into the "./gan_zoo/samples" directory every 1000 iterations (see [config.py](./gan_zoo/config.py)).
 
 ### StyleGAN Example:
+
+_(higher resolutions coming once model is done training in Google Colab with 16 GB GPU Memory!)_
 
 A StyleGAN Generator can be created by running the following 3 lines (for example):
   ~~~
@@ -111,7 +113,7 @@ Running [train.py](./gan_zoo/train.py) is just the very basic usage. This packag
 
 __Some Advantages of Jupyter Notebook (there are many more than this)__:
 + You have the flexibility to think about what to do with your trained model after its trained rather than all at once, such as:
-  + whether you want to save/load your trained model
+  + whether you want to save/load your trained model/learner
   + what learner.config parameters you want to change before training again
 + You can always stop the kernel during training and then resume again and it will work
 

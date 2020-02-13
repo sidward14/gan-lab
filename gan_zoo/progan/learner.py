@@ -986,7 +986,7 @@ class ProGANLearner( GANLearner ):
     else:
       model = self.gen_model
 
-    z_test = z_test.to( self.config.dev )
+    # z_test = z_test.to( self.config.dev )
     x_test = model( z_test ).squeeze()
 
     if label is not None:
@@ -995,7 +995,7 @@ class ProGANLearner( GANLearner ):
     logger = logging.getLogger()
     _old_level = logger.level
     logger.setLevel( 100 )  # ignores potential "clipping input data" warning
-    plt.imshow( ( ( ( x_test[ 0 ] ) \
+    plt.imshow( ( ( ( x_test ) \
                           .cpu().detach() * self._ds_std ) + self._ds_mean ) \
                           .numpy().transpose( 1, 2, 0 ), interpolation = 'none'
     )
