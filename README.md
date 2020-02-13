@@ -56,8 +56,6 @@ By default, the image grid above is saved periodically during training into the 
 
 ### StyleGAN Example:
 
-_(higher resolutions coming once model is done training in Google Colab with 16 GB GPU Memory!)_
-
 A StyleGAN Generator can be created by running the following 3 lines (for example):
   ~~~
   $ python config.py stylegan --batch_size=16
