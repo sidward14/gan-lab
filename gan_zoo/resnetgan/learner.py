@@ -102,9 +102,8 @@ class GANLearner( object ):
                                        self.__class__.__name__,
                                        NONREDEFINABLE_ATTRS,
                                        REDEFINABLE_FROM_LEARNER_ATTRS )
-      self.data_config = get_current_configuration( 'data_config' )
-      self._ds_mean = torch.FloatTensor( self.data_config.ds_mean ).unsqueeze( dim = 1 ).unsqueeze( dim = 2 )
-      self._ds_std = torch.FloatTensor( self.data_config.ds_std ).unsqueeze( dim = 1 ).unsqueeze( dim = 2 )
+      # pretrained models loaded later on for evaluation should not require data_config.py to have been run:
+      self._get_data_config( raise_exception = False )
 
       _model_selected = True
 
@@ -320,7 +319,11 @@ class GANLearner( object ):
   #         3.) class determined for random real sample (only if `self.ac` is `True`)
   @torch.no_grad()
   def compute_metrics( self, metrics:str, metrics_type:str, z_valid_dl, valid_dl = None ):
-    """In case one wants to just compute metrics for a given dataset."""
+    """Metric evaluation, run periodically during training or independently by the user."""
+
+    if not self._is_data_configed:
+      self._get_data_config( raise_exception = True )
+
     self.gen_model.eval()
     self.disc_model.eval()
 
@@ -463,6 +466,9 @@ class GANLearner( object ):
 
     self.num_main_iters = num_main_iters
     self.dataset_sz = len( train_dl.dataset )
+
+    if not self._is_data_configed:
+      self._get_data_config( raise_exception = True )
 
     self.gen_model.to( self.config.dev )
     self.gen_model.train()
@@ -853,6 +859,10 @@ class GANLearner( object ):
   @torch.no_grad()
   def plot_sample( self, z_test, label = None ):
     """Plots and shows 1 sample from input latent code."""
+    if not self.pretrained_model:
+      if not self._is_data_configed:
+        self._get_data_config( raise_exception = True )
+    
     if z_test.dim() == 2:
       if z_test.shape[0] != 1:
         raise IndexError( 'This method only permits plotting 1 generated sample at a time.' )
@@ -888,6 +898,10 @@ class GANLearner( object ):
   @torch.no_grad()
   def make_image_grid( self, zs, labels = None ):
     """Generates grid of images from input latent codes, whose size is `np.sqrt( len( zs ) )`."""
+    if not self.pretrained_model:
+      if not self._is_data_configed:
+        self._get_data_config( raise_exception = True )
+    
     if not zs.dim() == 2:
       raise IndexError( 'Incorrect dimensions of input latent vector. Must be `dim == 2`.' )
     if not self.cond_gen:
@@ -924,6 +938,17 @@ class GANLearner( object ):
     fig.subplots_adjust( left = 0, right = 1, bottom = 0, top = 1, wspace = 0, hspace = 0 )
 
     return ( fig, axs, )
+
+  # .......................................................................... #
+
+  def _get_data_config( self, raise_exception = True ):
+    self.data_config = get_current_configuration( 'data_config', raise_exception = raise_exception )
+    self._is_data_configed = True if self.data_config is not None else False
+    if self._is_data_configed:
+      self._ds_mean = torch.FloatTensor( self.data_config.ds_mean ).unsqueeze( dim = 1 ).unsqueeze( dim = 2 )
+      self._ds_std = torch.FloatTensor( self.data_config.ds_std ).unsqueeze( dim = 1 ).unsqueeze( dim = 2 )
+      self._ds_mean_unsq = self._ds_mean.unsqueeze( dim = 0 )
+      self._ds_std_unsq = self._ds_std.unsqueeze( dim = 0 )    
 
   # .......................................................................... #
 

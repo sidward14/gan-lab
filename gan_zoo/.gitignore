@@ -2,6 +2,7 @@ __pycache__/
 *.py[cod]
 
 samples/
+models/
 
 .config.p
 .data_config.p

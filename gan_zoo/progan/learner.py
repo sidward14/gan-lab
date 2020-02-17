@@ -104,11 +104,8 @@ class ProGANLearner( GANLearner ):
                                        self.__class__.__name__,
                                        NONREDEFINABLE_ATTRS,
                                        REDEFINABLE_FROM_LEARNER_ATTRS )
-      self.data_config = get_current_configuration( 'data_config' )
-      self._ds_mean = torch.FloatTensor( self.data_config.ds_mean ).unsqueeze( dim = 1 ).unsqueeze( dim = 2 )
-      self._ds_std = torch.FloatTensor( self.data_config.ds_std ).unsqueeze( dim = 1 ).unsqueeze( dim = 2 )
-      self._ds_mean_unsq = self._ds_mean.unsqueeze( dim = 0 )
-      self._ds_std_unsq = self._ds_std.unsqueeze( dim = 0 )
+      # pretrained models loaded later on for evaluation should not require data_config.py to have been run:
+      self._get_data_config( raise_exception = False )
 
       self.latent_distribution = self.config.latent_distribution
 
@@ -237,7 +234,11 @@ class ProGANLearner( GANLearner ):
   #         3.) class determined for random real sample (only if `self.ac` is `True`)
   @torch.no_grad()
   def compute_metrics( self, metrics:str, metrics_type:str, z_valid_dl, valid_dl = None ):
-    """In case one wants to just compute metrics for a given dataset."""
+    """Metric evaluation, run periodically during training or independently by the user."""
+
+    if not self._is_data_configed:
+      self._get_data_config( raise_exception = True )
+
     metrics_type = metrics_type.casefold()
     if metrics_type not in ( 'generator', 'critic', 'discriminator', ):
       raise Exception( 'Invalid metrics_type. Only "generator", "critic", or "discriminator" are accepted.' )
@@ -421,6 +422,9 @@ class ProGANLearner( GANLearner ):
 
     self.num_main_iters = num_main_iters
     self.dataset_sz = len( train_dl.dataset )
+
+    if not self._is_data_configed:
+      self._get_data_config( raise_exception = True )
 
     self.gen_model.to( self.config.dev )
     self.gen_model.train()
@@ -921,6 +925,9 @@ class ProGANLearner( GANLearner ):
   # .......................................................................... #
 
   def increase_real_data_res( self, transforms_lst:list ):
+    if not self._is_data_configed:
+      self._get_data_config( raise_exception = True )
+
     _num_rsz = 0
     for n, transform in enumerate( transforms_lst ):
       if isinstance( transform, transforms.Resize ):
@@ -965,6 +972,10 @@ class ProGANLearner( GANLearner ):
   @torch.no_grad()
   def plot_sample( self, z_test, label = None, time_average = True ):
     """Plots and shows 1 sample from input latent code."""
+    if not self.pretrained_model:
+      if not self._is_data_configed:
+        self._get_data_config( raise_exception = True )
+
     if z_test.dim() == 2:
       if z_test.shape[0] != 1:
         raise IndexError( 'This method only permits plotting 1 generated sample at a time.' )
@@ -1005,6 +1016,10 @@ class ProGANLearner( GANLearner ):
   @torch.no_grad()
   def make_image_grid( self, zs, labels = None, time_average = True ):
     """Generates grid of images from input latent codes, whose size is `np.sqrt( len( zs ) )`."""
+    if not self.pretrained_model:
+      if not self._is_data_configed:
+        self._get_data_config( raise_exception = True )
+
     if not zs.dim() == 2:
       raise IndexError( 'Incorrect dimensions of input latent vector. Must be `dim == 2`.' )
     if not self.cond_gen:
