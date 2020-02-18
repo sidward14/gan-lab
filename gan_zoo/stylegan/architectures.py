@@ -395,7 +395,7 @@ class StyleGenerator( StyleGAN ):
     else:
       raise Exception( 'Can only alter cutoff stage for truncation trick on w during evaluation mode.' )
 
-  def forward( self, x, noise = None, x_mixing = None, style_mixing_stage:int = None ):
+  def forward( self, x, x_mixing = None, style_mixing_stage:int = None, noise = None ):
     # TODO: Implement the ability to style-mix more than just 2 styles in eval mode
 
     cutoff_idx = None

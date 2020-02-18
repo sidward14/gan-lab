@@ -243,3 +243,131 @@ class StyleGANLearner( ProGANLearner ):
 
   # def reset_stylegan_state( self ):
   #   self.gen_model.cls_base.reset_state( )  # this applies to both networks simultaneously
+
+  # .......................................................................... #
+
+  @torch.no_grad()
+  def plot_sample( self, z_test, z_mixing = None, style_mixing_stage = None, noise = None, label = None, time_average = True ):
+    """Plots and shows 1 sample from input latent code; offers stylemixing and noise input capabilities."""
+    if not self.pretrained_model:
+      if not self._is_data_configed:
+        self._get_data_config( raise_exception = True )
+
+    for z in ( z_test, z_mixing, ):
+      if z is not None:
+        if z.dim() == 2:
+          if z.shape[0] != 1:
+            raise IndexError( 'This method only permits plotting 1 generated sample at a time.' )
+        elif z.dim() != 1:
+          raise IndexError( 'Incorrect dimensions of input latent vector. Must be either `dim == 1` or `dim == 2`.' )
+        if not self.cond_gen:
+          if z.shape[-1] != self.config.len_latent:
+            message = f"Input latent vector must be of size {self.config.len_latent}."
+            raise IndexError( message )
+        else:
+          if z.shape[-1] != self.config.len_latent + self.num_classes_gen:
+            message = f"This is a generator class-conditioned model. So please make sure to append a one-hot encoded vector\n" + \
+                      f"of size {self.num_classes_gen} that indicates the to-be generated sample's class to a latent vector of\n" + \
+                      f"size {self.config.len_latent}. Total input size must therefore be {self.config.len_latent + self.num_classes_gen}."
+            raise IndexError( message )
+
+    # z_test = z_test.to( self.config.dev )
+    x_test = \
+      self.gen_model_lagged(
+        z_test,
+        x_mixing = z_mixing,
+        style_mixing_stage = style_mixing_stage,
+        noise = noise ).squeeze() if time_average else \
+      self.gen_model(
+        z_test,
+        x_mixing = z_mixing,
+        style_mixing_stage = style_mixing_stage,
+        noise = noise ).squeeze()
+
+    if label is not None:
+      print( f'Label Index for Generated Image: {label}' )
+
+    logger = logging.getLogger()
+    _old_level = logger.level
+    logger.setLevel( 100 )  # ignores potential "clipping input data" warning
+    plt.imshow( ( ( ( x_test ) \
+                          .cpu().detach() * self._ds_std ) + self._ds_mean ) \
+                          .numpy().transpose( 1, 2, 0 ), interpolation = 'none'
+    )
+    logger.setLevel( _old_level )
+    plt.show()
+
+  @torch.no_grad()
+  def make_stylemixing_grid( self, zs_sourceb, zs_coarse = [], zs_middle = [], zs_fine = [], labels = None, time_average = True ):
+    """Generates style-mixed grid of images, similar to Figure 3 in Karras et al. 2019."""
+    assert any( len( zs ) for zs in ( zs_coarse, zs_middle, zs_fine, ) )
+    if not self.pretrained_model:
+      if not self._is_data_configed:
+        self._get_data_config( raise_exception = True )
+
+    szs = []
+    stages = [ 0 ]
+    for m, zs in enumerate( ( zs_sourceb, zs_coarse, zs_middle, zs_fine, ) ):
+      szs.append( 1 if isinstance( zs, torch.Tensor ) and zs.dim() == 1 else len( zs ) )
+      if szs[m]:
+        if zs.dim() > 2:
+          raise IndexError( 'Incorrect dimensions of input latent vector. Must be either `dim == 1` or `dim == 2`.' )
+        else:
+          if m == 1:
+            stage = 2
+            if zs.dim() == 1: zs_coarse.unsqueeze_( dim = 0 )
+          elif m == 2:
+            stage = 4
+            if zs.dim() == 1: zs_middle.unsqueeze_( dim = 0 )
+          elif m == 3:
+            stage = 8
+            if zs.dim() == 1: zs_fine.unsqueeze_( dim = 0 )
+          if m: stages.append( stage )
+        if not self.cond_gen:
+          if zs.shape[1] != self.config.len_latent:
+            message = f"Input latent vector must be of size {self.config.len_latent}."
+            raise IndexError( message )
+        else:
+          if zs.shape[1] != self.config.len_latent + self.num_classes_gen:
+            message = f"This is a generator class-conditioned model. So please make sure to append a one-hot encoded vector\n" + \
+                      f"of size {self.num_classes_gen} that indicates the to-be generated sample's class to a latent vector of\n" + \
+                      f"size {self.config.len_latent}. Total input size must therefore be {self.config.len_latent + self.num_classes_gen}."
+            raise IndexError( message )
+
+    sz = szs[0] + 1
+    wspace = plt.rcParams[ 'figure.subplot.wspace' ]
+    hspace = plt.rcParams[ 'figure.subplot.hspace' ]
+    for m, zs in enumerate( ( zs_sourceb, zs_coarse, zs_middle, zs_fine, ) ):
+      nrows = 1 if not m else szs[ m ]
+      fig = plt.figure( figsize = ( 16, nrows * ( 16. / sz ) if labels is None else nrows * ( 18. / sz ), ) )
+      axs = [ fig.add_subplot( nrows, sz, i + 1 ) for i in range( nrows * sz ) ]
+      logger = logging.getLogger()
+      _old_level = logger.level
+      logger.setLevel( 100 )  # ignores potential "clipping input data" warning
+      for n, ax in enumerate( axs ):
+        col = ( n % sz ); idx = n // sz
+        ax.axis( 'off' )
+        ax.set_aspect( 'equal' )
+        l, b, w, h = ax.get_position().bounds
+        ax.set_position( [ l*( 1. - wspace ), b*( 1. - hspace ), w, h ] )
+        if not col:
+          ax.set_position( [ ( l - ( .005 * ( fig.dpi / fig.get_size_inches()[0] ) ) )*( 1. - wspace ), b*( 1. - hspace ), w, h ] )
+        if not m and not col:
+          pass
+        else:
+          if ( not m ) != ( not col ):  # xor
+            x = self.gen_model_lagged( zs_sourceb[ col -1 ] if not m else zs[ idx ] ).squeeze() if time_average else \
+                self.gen_model( zs_sourceb[ col -1 ] if not m else zs[ idx ] ).squeeze()
+          elif m and col:
+            x = self.gen_model_lagged( zs[ idx ], x_mixing = zs_sourceb[ col - 1 ], style_mixing_stage = stages[ m ] ).squeeze() if time_average else \
+                self.gen_model( zs[ idx ], x_mixing = zs_sourceb[ col - 1 ], style_mixing_stage = stages[ m ] ).squeeze()
+          ax.imshow(
+            ( ( x.cpu().detach() * self._ds_std ) + self._ds_mean ).numpy().transpose( 1, 2, 0 ),
+            interpolation = 'none'
+          )
+          if labels is not None:
+            ax.set_title( str( labels[ n ].item() ) )
+      logger.setLevel( _old_level )
+      # fig.subplots_adjust( left = 0, right = 1, bottom = 0, top = 1, wspace = 0, hspace = 0 )
+
+    return ( fig, axs, )

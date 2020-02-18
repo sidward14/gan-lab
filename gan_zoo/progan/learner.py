@@ -992,13 +992,8 @@ class ProGANLearner( GANLearner ):
                   f"size {self.config.len_latent}. Total input size must therefore be {self.config.len_latent + self.num_classes_gen}."
         raise IndexError( message )
 
-    if time_average:
-      model = self.gen_model_lagged
-    else:
-      model = self.gen_model
-
     # z_test = z_test.to( self.config.dev )
-    x_test = model( z_test ).squeeze()
+    x_test = self.gen_model_lagged( z_test ).squeeze() if time_average else self.gen_model( z_test ).squeeze()
 
     if label is not None:
       print( f'Label Index for Generated Image: {label}' )
@@ -1036,11 +1031,6 @@ class ProGANLearner( GANLearner ):
     if np.sqrt( len( zs ) ) % 1 != 0:
       raise ValueError( 'Argument `zs` must be a perfect square-length in order to make image grid.' )
 
-    if time_average:
-      model = self.gen_model_lagged
-    else:
-      model = self.gen_model
-
     sz = int( np.sqrt( len( zs ) ) )
     fig = plt.figure( figsize = ( 8, 8 if labels is None else 9, ) )
     axs = [ fig.add_subplot( sz, sz, i + 1 ) for i in range( sz**2 ) ]
@@ -1048,7 +1038,7 @@ class ProGANLearner( GANLearner ):
     _old_level = logger.level
     logger.setLevel( 100 )  # ignores potential "clipping input data" warning
     for n, ax in enumerate( axs ):
-      x = model( zs[ n ] ).squeeze()
+      x = self.gen_model_lagged( zs[ n ] ).squeeze() if time_average else self.gen_model( zs[ n ] ).squeeze()
       ax.imshow(
         ( ( x.cpu().detach() * self._ds_std ) + self._ds_mean ).numpy().transpose( 1, 2, 0 ),
         interpolation = 'none'
