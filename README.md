@@ -61,9 +61,7 @@ A ProGAN Generator that yields 128x128 images _(higher resolutions coming once m
   $ python train.py
   ~~~
 
-  <p align="center">
-  <img align="center" src="https://giphy.com/embed/KCeh2byAXR6s0lrymS?raw=true" width="500" height="500"/>
-  </p>
+  ![](https://media.giphy.com/media/d7ISb2pqHQAYtfWNAo/giphy.gif?raw=true)
 
 By default, image grids of generator output are saved periodically during training into the "./gan_zoo/samples" directory every 1,000 iterations (see [config.py](./gan_zoo/config.py)).
 
