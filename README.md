@@ -47,7 +47,7 @@ A StyleGAN Generator that yields 128x128 images _(higher resolutions coming once
   ~~~
 
   <p align="center">
-  <img align="center" src="https://media.giphy.com/media/KCeh2byAXR6s0lrymS/giphy.gif?raw=true" width="500" height="500"/>
+  <img align="center" src="file:///home/sid/repos/ml-repos/gan-zoo/examples/for_readme/stylegan/stylegan_image-grid_growth_reduced_x4.gif" width="500" height="500"/>
   </p>
 
 By default, image grids like the one above are saved periodically during training into the "./gan_zoo/samples" directory every 1,000 iterations (see [config.py](./gan_zoo/config.py)). _Please note that the gif above contains a reduced number of frames compared to its original form (in order to reduce its file size)._
@@ -61,7 +61,9 @@ A ProGAN Generator that yields 128x128 images _(higher resolutions coming once m
   $ python train.py
   ~~~
 
-  ![](https://media.giphy.com/media/d7ISb2pqHQAYtfWNAo/giphy.gif?raw=true)
+  <p align="center">
+  <img align="center" src="https://i.ibb.co/yqvdYWw/image-grids.gif?raw=true" width="500" height="500"/>
+  </p>
 
 By default, image grids of generator output are saved periodically during training into the "./gan_zoo/samples" directory every 1,000 iterations (see [config.py](./gan_zoo/config.py)).
 
