@@ -2,7 +2,7 @@
 
 <img align="center" src="https://github.com/sidward14/gan-zoo/raw/master/examples/for_readme/stylegan/stylemixed-grid_sample.png" height="696" width="900"/>
 
-### _Higher Resolutions coming once model finishes training in Google Colab with 16 GB GPU Memory (these are 128x128 from a 6 GB GPU)_
+### _Higher resolutions coming once model finishes training in Google Colab with 16 GB GPU Memory (these are 128x128 from a 6 GB GPU)_
 
 __Currently supports:__
 + StyleGAN (https://arxiv.org/pdf/1812.04948.pdf)
@@ -39,7 +39,7 @@ __NOTE__: Make sure that all images you would like to use in your model are loca
 
 ### StyleGAN Example:
 
-A StyleGAN Generator that yields 128x128 images _(higher resolutions coming once model is done training in Google Colab with 16 GB GPU Memory!)_ can be created by running the following 3 lines. Below is a snapshot of images as the StyleGAN progressively grows. Ofcourse, this is not the only configuration that works:
+A StyleGAN Generator that yields 128x128 images _(higher resolutions coming once model is done training in Google Colab with 16 GB GPU Memory)_ can be created by running the following 3 lines. Below is a snapshot of images as the StyleGAN progressively grows. Ofcourse, this is not the only configuration that works:
   ~~~
   $ python config.py stylegan --loss=nonsaturating --gradient_penalty=R1 --res_samples=128 --num_main_iters=1071000 --nimg_transition=630000 --batch_size=8 --enable_cudnn_autotuner --num_workers=12
   $ python data_config.py FFHQ path/to/datasets/ffhq --enable_mirror_augmentation
@@ -54,7 +54,7 @@ By default, image grids like the one above are saved periodically during trainin
 
 ### ProGAN Example:
 
-A ProGAN Generator that yields 128x128 images _(higher resolutions coming once model is done training in Google Colab with 16 GB GPU Memory!)_ like the ones below can be created by running the following 3 lines. Ofcourse, this is not the only configuration that works:
+A ProGAN Generator that yields 128x128 images _(higher resolutions coming once model is done training in Google Colab with 16 GB GPU Memory)_ like the ones below can be created by running the following 3 lines. Ofcourse, this is not the only configuration that works:
   ~~~
   $ python config.py progan --res_samples=128 --num_main_iters=1050000 --batch_size=8
   $ python data_config.py CelebA-HQ path/to/datasets/celeba_hq --enable_mirror_augmentation
