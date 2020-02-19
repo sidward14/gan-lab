@@ -298,121 +298,121 @@ class StyleGANLearner( ProGANLearner ):
     logger.setLevel( _old_level )
     plt.show()
 
-@torch.no_grad()
-def make_stylemixing_grid( zs_sourceb, zs_coarse = [], zs_middle = [], zs_fine = [], labels = None, time_average = True ):
-  """Generates style-mixed grid of images, emulating Figure 3 in Karras et al. 2019."""
-  assert any( len( zs ) for zs in ( zs_coarse, zs_middle, zs_fine, ) )
-  if not self.pretrained_model:
-    if not self._is_data_configed:
-      self._get_data_config( raise_exception = True )
+  @torch.no_grad()
+  def make_stylemixing_grid( zs_sourceb, zs_coarse = [], zs_middle = [], zs_fine = [], labels = None, time_average = True ):
+    """Generates style-mixed grid of images, emulating Figure 3 in Karras et al. 2019."""
+    assert any( len( zs ) for zs in ( zs_coarse, zs_middle, zs_fine, ) )
+    if not self.pretrained_model:
+      if not self._is_data_configed:
+        self._get_data_config( raise_exception = True )
 
-  szs = []
-  stages = [ 0 ]
-  for m, zs in enumerate( ( zs_sourceb, zs_coarse, zs_middle, zs_fine, ) ):
-    szs.append( 1 if isinstance( zs, torch.Tensor ) and zs.dim() == 1 else len( zs ) )
-    if szs[m]:
-      if zs.dim() > 2:
-        raise IndexError( 'Incorrect dimensions of input latent vector. Must be either `dim == 1` or `dim == 2`.' )
+    szs = []
+    stages = [ 0 ]
+    for m, zs in enumerate( ( zs_sourceb, zs_coarse, zs_middle, zs_fine, ) ):
+      szs.append( 1 if isinstance( zs, torch.Tensor ) and zs.dim() == 1 else len( zs ) )
+      if szs[m]:
+        if zs.dim() > 2:
+          raise IndexError( 'Incorrect dimensions of input latent vector. Must be either `dim == 1` or `dim == 2`.' )
+        else:
+          if m == 1:
+            stage = 1  # stage for style-mixing of coarse features from source b
+            if zs.dim() == 1: zs_coarse.unsqueeze_( dim = 0 )
+          elif m == 2:
+            stage = 4  # stage for style-mixing of mid-level features from source b
+            if zs.dim() == 1: zs_middle.unsqueeze_( dim = 0 )
+          elif m == 3:
+            stage = 8  # stage for style-mixing of fine-grained features from source b
+            if zs.dim() == 1: zs_fine.unsqueeze_( dim = 0 )
+          if m: stages.append( stage )
+        if not self.cond_gen:
+          if zs.shape[1] != self.config.len_latent:
+            message = f"Input latent vector must be of size {self.config.len_latent}."
+            raise IndexError( message )
+        else:
+          if zs.shape[1] != self.config.len_latent + self.num_classes_gen:
+            message = f"This is a generator class-conditioned model. So please make sure to append a one-hot encoded vector\n" + \
+                      f"of size {self.num_classes_gen} that indicates the to-be generated sample's class to a latent vector of\n" + \
+                      f"size {self.config.len_latent}. Total input size must therefore be {self.config.len_latent + self.num_classes_gen}."
+            raise IndexError( message )
       else:
-        if m == 1:
-          stage = 1  # stage for style-mixing of coarse features from source b
-          if zs.dim() == 1: zs_coarse.unsqueeze_( dim = 0 )
-        elif m == 2:
-          stage = 4  # stage for style-mixing of mid-level features from source b
-          if zs.dim() == 1: zs_middle.unsqueeze_( dim = 0 )
-        elif m == 3:
-          stage = 8  # stage for style-mixing of fine-grained features from source b
-          if zs.dim() == 1: zs_fine.unsqueeze_( dim = 0 )
-        if m: stages.append( stage )
-      if not self.cond_gen:
-        if zs.shape[1] != self.config.len_latent:
-          message = f"Input latent vector must be of size {self.config.len_latent}."
-          raise IndexError( message )
-      else:
-        if zs.shape[1] != self.config.len_latent + self.num_classes_gen:
-          message = f"This is a generator class-conditioned model. So please make sure to append a one-hot encoded vector\n" + \
-                    f"of size {self.num_classes_gen} that indicates the to-be generated sample's class to a latent vector of\n" + \
-                    f"size {self.config.len_latent}. Total input size must therefore be {self.config.len_latent + self.num_classes_gen}."
-          raise IndexError( message )
-    else:
-        stages.append( 0 )
+          stages.append( 0 )
 
-  ncols_tot = 1 + szs[0]; nrows_tot = 1 + sum( szs[1:] )
-  cum_szs = [0] + list( accumulate( szs[1:] ) )
-  fig = plt.figure( figsize = ( 8. * ( ncols_tot / nrows_tot ), 8. if labels is None else 9., ) )
-  axs = fig.subplots( ncols = ncols_tot, nrows = nrows_tot )
-  fig.tight_layout( pad = 0 )
-  _fctrs = ( ( fig.subplotpars.wspace / 0.47267497603068315 ), ( fig.subplotpars.hspace / 0.28000000000000086 ), )
-  gaps = ( ( .002 * _fctrs[0] * ( fig.dpi / fig.get_size_inches().mean() ) ), \
-            ( .002 * _fctrs[1] * ( fig.dpi / fig.get_size_inches()[1] ) ), )
-  # wspace = fig.subplotpars.wspace
-  # hspace = fig.subplotpars.hspace
-  wspace = plt.rcParams[ 'figure.subplot.wspace' ] * _fctrs[0]
-  hspace = plt.rcParams[ 'figure.subplot.hspace' ] * _fctrs[1]
-  start = 0
-  logger = logging.getLogger(); _old_level = logger.level; logger.setLevel( 100 )  # ignores potential "clipping input data" warning
-  for m, zs in enumerate( ( zs_sourceb, zs_coarse, zs_middle, zs_fine, ) ):
-    if szs[m]:
-      nrows = 1 if not m else szs[ m ]
-      if m: start = row + 1
-      for row in range( start, start + nrows ):
-        for col in range( ncols_tot ):
-          axs[row][col].axis( 'off' )
-          axs[row][col].set_aspect( 'equal' )
-          l, b, w, h = axs[row][col].get_position().bounds
-          l *= ( 1. - wspace ); b *= ( 1. - hspace ); w *= ( 1. + wspace ); h *= ( 1. + hspace )
-          if m > 1: b -= ( m - 1 ) *gaps[1]
-          if not row and not col:
-            axs[row][col].set_position( [ l - gaps[0], b + gaps[1], w, h ] )
-          else:
-            if ( not row ) != ( not col ):  # xor
-              if row:
-                axs[row][col].set_position( [ l - gaps[0], b, w, h ] )
-                if row == 1:
-                  axs[row][col].set_title( 'Source A', fontweight = 'bold' )
-              elif col:
-                axs[row][col].set_position( [ l, b + gaps[1], w, h ] )
-                if col == 1:
-                  axs[row][col].axis( 'on' )
-                  axs[row][col].spines['top'].set_visible(False)
-                  axs[row][col].spines['right'].set_visible(False)
-                  axs[row][col].spines['bottom'].set_visible(False)
-                  axs[row][col].spines['left'].set_visible(False)
-                  axs[row][col].set_xticks( [] )
-                  axs[row][col].set_yticks( [] )
-                  axs[row][col].set_ylabel( 'Source B', fontweight = 'bold', fontsize = plt.rcParams[ 'axes.titlesize' ] )
-              x = self.gen_model_lagged( zs_sourceb[ col - 1 ] if not m else zs[ row - cum_szs[m-1] - 1 ] ).squeeze() if time_average else \
-                  self.gen_model( zs_sourceb[ col - 1 ] if not m else zs[ row - cum_szs[m-1] - 1 ] ).squeeze()
-            elif row and col:
-              axs[row][col].set_position( [ l, b, w, h ] )
-              x = self.gen_model_lagged( zs[ row - cum_szs[m-1] - 1 ], x_mixing = zs_sourceb[ col - 1 ], style_mixing_stage = stages[ m ] ).squeeze() if time_average else \
-                  self.gen_model( zs[ row - cum_szs[m-1] - 1 ], x_mixing = zs_sourceb[ col - 1 ], style_mixing_stage = stages[ m ] ).squeeze()
-            axs[row][col].imshow(
-              ( ( x.cpu().detach() * self._ds_std ) + self._ds_mean ).numpy().transpose( 1, 2, 0 ), interpolation = 'none'
-            )
-            if labels is not None:
-              axs[row][col].set_title( str( labels[ row*ncols_tot + col ].item() ) )
+    ncols_tot = 1 + szs[0]; nrows_tot = 1 + sum( szs[1:] )
+    cum_szs = [0] + list( accumulate( szs[1:] ) )
+    fig = plt.figure( figsize = ( 8. * ( ncols_tot / nrows_tot ), 8. if labels is None else 9., ) )
+    axs = fig.subplots( ncols = ncols_tot, nrows = nrows_tot )
+    fig.tight_layout( pad = 0 )
+    _fctrs = ( ( fig.subplotpars.wspace / 0.47267497603068315 ), ( fig.subplotpars.hspace / 0.28000000000000086 ), )
+    gaps = ( ( .002 * _fctrs[0] * ( fig.dpi / fig.get_size_inches().mean() ) ), \
+              ( .002 * _fctrs[1] * ( fig.dpi / fig.get_size_inches()[1] ) ), )
+    # wspace = fig.subplotpars.wspace
+    # hspace = fig.subplotpars.hspace
+    wspace = plt.rcParams[ 'figure.subplot.wspace' ] * _fctrs[0]
+    hspace = plt.rcParams[ 'figure.subplot.hspace' ] * _fctrs[1]
+    start = 0
+    logger = logging.getLogger(); _old_level = logger.level; logger.setLevel( 100 )  # ignores potential "clipping input data" warning
+    for m, zs in enumerate( ( zs_sourceb, zs_coarse, zs_middle, zs_fine, ) ):
+      if szs[m]:
+        nrows = 1 if not m else szs[ m ]
+        if m: start = row + 1
+        for row in range( start, start + nrows ):
+          for col in range( ncols_tot ):
+            axs[row][col].axis( 'off' )
+            axs[row][col].set_aspect( 'equal' )
+            l, b, w, h = axs[row][col].get_position().bounds
+            l *= ( 1. - wspace ); b *= ( 1. - hspace ); w *= ( 1. + wspace ); h *= ( 1. + hspace )
+            if m > 1: b -= ( m - 1 ) *gaps[1]
+            if not row and not col:
+              axs[row][col].set_position( [ l - gaps[0], b + gaps[1], w, h ] )
+            else:
+              if ( not row ) != ( not col ):  # xor
+                if row:
+                  axs[row][col].set_position( [ l - gaps[0], b, w, h ] )
+                  if row == 1:
+                    axs[row][col].set_title( 'Source A', fontweight = 'bold' )
+                elif col:
+                  axs[row][col].set_position( [ l, b + gaps[1], w, h ] )
+                  if col == 1:
+                    axs[row][col].axis( 'on' )
+                    axs[row][col].spines['top'].set_visible(False)
+                    axs[row][col].spines['right'].set_visible(False)
+                    axs[row][col].spines['bottom'].set_visible(False)
+                    axs[row][col].spines['left'].set_visible(False)
+                    axs[row][col].set_xticks( [] )
+                    axs[row][col].set_yticks( [] )
+                    axs[row][col].set_ylabel( 'Source B', fontweight = 'bold', fontsize = plt.rcParams[ 'axes.titlesize' ] )
+                x = self.gen_model_lagged( zs_sourceb[ col - 1 ] if not m else zs[ row - cum_szs[m-1] - 1 ] ).squeeze() if time_average else \
+                    self.gen_model( zs_sourceb[ col - 1 ] if not m else zs[ row - cum_szs[m-1] - 1 ] ).squeeze()
+              elif row and col:
+                axs[row][col].set_position( [ l, b, w, h ] )
+                x = self.gen_model_lagged( zs[ row - cum_szs[m-1] - 1 ], x_mixing = zs_sourceb[ col - 1 ], style_mixing_stage = stages[ m ] ).squeeze() if time_average else \
+                    self.gen_model( zs[ row - cum_szs[m-1] - 1 ], x_mixing = zs_sourceb[ col - 1 ], style_mixing_stage = stages[ m ] ).squeeze()
+              axs[row][col].imshow(
+                ( ( x.cpu().detach() * self._ds_std ) + self._ds_mean ).numpy().transpose( 1, 2, 0 ), interpolation = 'none'
+              )
+              if labels is not None:
+                axs[row][col].set_title( str( labels[ row*ncols_tot + col ].item() ) )
 
-  # center the axes of each subplot on the figure after moving everything around
-  fig_top_right = fig.get_window_extent().corners()[3]
-  l,b,w,h = axs[0,-1].get_position().bounds; top_right = ( l + w, b + h, )
-  l,b,w,h = axs[-1,0].get_position().bounds; bot_left = ( l, b, )
-  shift = tuple( -bot_left[i] + ( 1. - top_right[i] ) / 2. for i in range( 2 ) )
-  for row in range( nrows_tot ):
-    for col in range( ncols_tot ):
-      l, b, w, h = axs[row][col].get_position().bounds
-      axs[row][col].set_position( [ l + shift[0], b + shift[1], w, h ] )
+    # center the axes of each subplot on the figure after moving everything around
+    fig_top_right = fig.get_window_extent().corners()[3]
+    l,b,w,h = axs[0,-1].get_position().bounds; top_right = ( l + w, b + h, )
+    l,b,w,h = axs[-1,0].get_position().bounds; bot_left = ( l, b, )
+    shift = tuple( -bot_left[i] + ( 1. - top_right[i] ) / 2. for i in range( 2 ) )
+    for row in range( nrows_tot ):
+      for col in range( ncols_tot ):
+        l, b, w, h = axs[row][col].get_position().bounds
+        axs[row][col].set_position( [ l + shift[0], b + shift[1], w, h ] )
 
-  # ylabel for Coarse, Middle, and Fine styles from Source B
-  for k in range( 1, m + 1 ):
-    if szs[k]:
-      l, b, w, h = axs[cum_szs[k]][0].get_position().bounds
-      center_y = ( szs[k] * h ) / 2.
-      if k == 1: ylabel = 'Coarse'
-      elif k == 2: ylabel = 'Middle'
-      elif k == 3: ylabel = 'Fine'
-      ylabel += ' from B' if szs[k] < 2 else ' styles from Source B'
-      fig.text( l - gaps[0], b + center_y, ylabel, va = 'center', rotation = 'vertical' )
-  logger.setLevel( _old_level )
+    # ylabel for Coarse, Middle, and Fine styles from Source B
+    for k in range( 1, m + 1 ):
+      if szs[k]:
+        l, b, w, h = axs[cum_szs[k]][0].get_position().bounds
+        center_y = ( szs[k] * h ) / 2.
+        if k == 1: ylabel = 'Coarse'
+        elif k == 2: ylabel = 'Middle'
+        elif k == 3: ylabel = 'Fine'
+        ylabel += ' from B' if szs[k] < 2 else ' styles from Source B'
+        fig.text( l - gaps[0], b + center_y, ylabel, va = 'center', rotation = 'vertical' )
+    logger.setLevel( _old_level )
 
-  return ( fig, axs, )
+    return ( fig, axs, )
