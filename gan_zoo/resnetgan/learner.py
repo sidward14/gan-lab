@@ -862,7 +862,7 @@ class GANLearner( object ):
     if not self.pretrained_model:
       if not self._is_data_configed:
         self._get_data_config( raise_exception = True )
-    
+
     if z_test.dim() == 2:
       if z_test.shape[0] != 1:
         raise IndexError( 'This method only permits plotting 1 generated sample at a time.' )
@@ -901,7 +901,7 @@ class GANLearner( object ):
     if not self.pretrained_model:
       if not self._is_data_configed:
         self._get_data_config( raise_exception = True )
-    
+
     if not zs.dim() == 2:
       raise IndexError( 'Incorrect dimensions of input latent vector. Must be `dim == 2`.' )
     if not self.cond_gen:
@@ -948,7 +948,7 @@ class GANLearner( object ):
       self._ds_mean = torch.FloatTensor( self.data_config.ds_mean ).unsqueeze( dim = 1 ).unsqueeze( dim = 2 )
       self._ds_std = torch.FloatTensor( self.data_config.ds_std ).unsqueeze( dim = 1 ).unsqueeze( dim = 2 )
       self._ds_mean_unsq = self._ds_mean.unsqueeze( dim = 0 )
-      self._ds_std_unsq = self._ds_std.unsqueeze( dim = 0 )    
+      self._ds_std_unsq = self._ds_std.unsqueeze( dim = 0 )
 
   # .......................................................................... #
 
