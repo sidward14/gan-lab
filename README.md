@@ -1,6 +1,6 @@
 # GAN Zoo
 
-<img align="center" src ="https://github.com/sidward14/gan-zoo/raw/master/examples/for_readme/stylegan/stylemixed-grid_sample.png" height="696" width="900"/>
+<img align="center" src="https://github.com/sidward14/gan-zoo/raw/master/examples/for_readme/stylegan/stylemixed-grid_sample.png" height="696" width="900"/>
 
 ### _Higher Resolutions coming once model finishes training in Google Colab with 16 GB GPU Memory (these are 128x128 from a 6 GB GPU)_
 
@@ -47,7 +47,7 @@ A StyleGAN Generator that yields 128x128 images _(higher resolutions coming once
   ~~~
 
   <p align="center">
-  <img align="center" src ="https://media.giphy.com/media/KCeh2byAXR6s0lrymS/giphy.gif"/>
+  <img align="center" src="https://media.giphy.com/media/KCeh2byAXR6s0lrymS/giphy.gif?raw=true"/>
   </p>
 
 By default, image grids like the one above are saved periodically during training into the "./gan_zoo/samples" directory every 1,000 iterations (see [config.py](./gan_zoo/config.py)). _Please note that the gif above contains a reduced number of frames compared to its original form (in order to reduce its file size)._
@@ -62,7 +62,7 @@ A ProGAN Generator that yields 128x128 images _(higher resolutions coming once m
   ~~~
 
   <p align="center">
-  <img align="center" src ="https://media.giphy.com/media/d7ISb2pqHQAYtfWNAo/giphy.gif"/>
+  <img align="center" src="https://media.giphy.com/media/d7ISb2pqHQAYtfWNAo/giphy.gif?raw=true"/>
   </p>
 
 By default, image grids of generator output are saved periodically during training into the "./gan_zoo/samples" directory every 1,000 iterations (see [config.py](./gan_zoo/config.py)).
