@@ -299,7 +299,7 @@ class StyleGANLearner( ProGANLearner ):
     plt.show()
 
   @torch.no_grad()
-  def make_stylemixing_grid( zs_sourceb, zs_coarse = [], zs_middle = [], zs_fine = [], labels = None, time_average = True ):
+  def make_stylemixing_grid( self, zs_sourceb, zs_coarse = [], zs_middle = [], zs_fine = [], labels = None, time_average = True ):
     """Generates style-mixed grid of images, emulating Figure 3 in Karras et al. 2019."""
     assert any( len( zs ) for zs in ( zs_coarse, zs_middle, zs_fine, ) )
     if not self.pretrained_model:
