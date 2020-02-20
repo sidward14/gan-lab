@@ -2,7 +2,7 @@
 
 <img align="center" src="https://github.com/sidward14/gan-zoo/raw/master/examples/for_readme/stylegan/stylemixed-grid_sample.png" height="696" width="900"/>
 
-### _Higher resolutions coming once model finishes training in Google Colab with 16 GB GPU Memory (these are 128x128 from a 6 GB GPU)_
+### _Higher resolutions coming once model finishes training in Google Colab with 16 GB GPU Memory (the above are 128x128 res images from a StyleGAN trained in a 6 GB GPU)_
 
 __Currently supports:__
 + StyleGAN (https://arxiv.org/pdf/1812.04948.pdf)
