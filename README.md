@@ -23,7 +23,7 @@ In your virtual environment (e.g. a conda virtual environment), run:
   ~~~
 This will install all necessary dependencies for you and will enable the option to use the package like an API (see "Jupyter Notebook (or Custom Script) Usage" below).
 
-If you do not wish to use the package like an API (i.e. you just want to install dependencies and then just use the repo by means of running [train.py](./gan_zoo/train.py)), run '$ pip install -r requirements.txt' instead.
+If you do not wish to use the package like an API (i.e. you just want to install dependencies and then just use the repo by means of running [train.py](./gan_zoo/train.py), like shown below in the "Basic Usage on Command-line" section), you can run '$ pip install -r requirements.txt' instead.
 
 ## Basic Usage on Command-line
 
@@ -82,15 +82,15 @@ A ResNet GAN Generator can be created by running the following 3 lines (for exam
 
 ## Jupyter Notebook (or Custom Script) Usage
 
-Running [train.py](./gan_zoo/train.py) is just the very basic usage. This package can be imported and utilized in a modular manner as well (like an API). For example, often it's helpful to experiment inside a Jupyter Notebook, like in the example below.
+Running [train.py](./gan_zoo/train.py) is just the very basic usage. This package can be imported and utilized in a modular manner as well (like an API). For example, often it's helpful to experiment inside a Jupyter Notebook, like in the example workflow below.
 
-  First configure your GAN to your choosing on the command-line (like explained above under "Basic Usage on Command-line"):
+  First, configure your GAN to your choosing on the command-line (like explained above under the "Basic Usage on Command-line" section):
   ~~~
   $ python config.py stylegan
   $ python data_config.py FFHQ path/to/datasets/ffhq
   ~~~
 
-  Then write a custom script or Jupyter Notebook cells:
+  Then, write a custom script or Jupyter Notebook cells:
   ```python
   from gan_zoo import get_current_configuration
   from gan_zoo.utils.data_utils import prepare_dataset, prepare_dataloader
@@ -115,7 +115,7 @@ __Some Advantages of Jupyter Notebook (there are many more than this)__:
 + You have the flexibility to think about what to do with your trained model after its trained rather than all at once, such as:
   + whether you want to save/load your trained model/learner
   + what learner.config parameters you want to change before training again
-+ You can always stop the kernel during training and then resume again and it will work
++ You can always stop the kernel during training, do something else, and then resume again and it will work
 
 --------------------------------------------------------------------------------
 

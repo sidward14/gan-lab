@@ -534,6 +534,10 @@ class ProGANLearner( GANLearner ):
 
             # ---------------- #
 
+            self._set_loss( )
+
+            # ---------------- #
+
             train_dl.batch_sampler.batch_size = self.batch_size
             # self.train_dataiter._index_sampler.batch_size = self.batch_size
 
