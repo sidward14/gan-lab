@@ -193,6 +193,7 @@ class StyleGenerator( StyleGAN ):
     )
 
     self._use_noise = use_noise
+    self._trained_with_noise = use_noise
     if use_noise:
       conv = Conv2dEx( ni = _fmap_init, nf = self.fmap, ks = 3,
                        stride = 1, padding = 1, init = 'He', init_type = 'StyleGAN',
@@ -230,14 +231,13 @@ class StyleGenerator( StyleGAN ):
     )
     assert 0. <= truncation_trick_params[ 'beta' ] <= 1.
     self.w_ewma_beta = truncation_trick_params[ 'beta' ]
-    assert 0. <= truncation_trick_params[ 'psi' ] < 1.
-    self._w_eval_psi = truncation_trick_params[ 'psi' ]
+    self._w_eval_psi = truncation_trick_params[ 'psi' ]  # allow psi to be any number you want, perhaps worthy of experimentation
     assert ( ( isinstance( truncation_trick_params[ 'cutoff_stage' ], int ) and \
                 0 < truncation_trick_params[ 'cutoff_stage' ] <= int( np.log2( self.final_res ) ) - 2 ) or \
                 truncation_trick_params[ 'cutoff_stage' ] is None )
     self._trunc_cutoff_stage = truncation_trick_params[ 'cutoff_stage' ]
-    self.use_truncation_trick = \
-      True if self.w_ewma_beta else False  # set to `False` if you want to turn off during evaluation mode
+    # set the below to `False` if you want to turn off during evaluation mode
+    self.use_truncation_trick = True if self._trunc_cutoff_stage else False
     self.w_ewma = None
 
     self.gen_layers.append(
@@ -286,7 +286,7 @@ class StyleGenerator( StyleGAN ):
     if upsample:
       upsampler.append( self.upsampler )
 
-    if self._use_noise or blur_op is not None:
+    if self.use_noise or blur_op is not None:
       conv = Conv2dEx( ni = ni, nf = self.fmap, ks = 3, stride = 1, padding = 1,
                        init = 'He', init_type = 'StyleGAN', gain_sq_base = 2.,
                        equalized_lr = self.equalized_lr, include_bias = False )
@@ -303,7 +303,7 @@ class StyleGenerator( StyleGAN ):
       blur.append( blur_op )
 
     noise = None
-    if self._use_noise:
+    if self.use_noise:
       noise = StyleAddNoise( nf = self.fmap )
 
     nl = []
@@ -336,13 +336,13 @@ class StyleGenerator( StyleGAN ):
     """Overwritten to turn on mixing regularization (if > 0%) during training mode."""
     super( self.__class__, self ).train( mode = mode )
 
+    self._use_noise = self._trained_with_noise
     self._use_mixing_reg = True if self.pct_mixing_reg else False
 
   def eval( self ):
     """Overwritten to turn off mixing regularization during evaluation mode."""
     super( self.__class__, self ).eval( )
 
-    self._trained_with_noise = self._use_noise
     self._use_mixing_reg = False
 
   def to( self, *args, **kwargs ):
@@ -355,13 +355,20 @@ class StyleGenerator( StyleGAN ):
           self.w_ewma = self.w_ewma.to( arg )
           break
 
-  def set_use_noise( self, mode ):
+  @property
+  def use_noise( self ):
+    return self._use_noise
+
+  @use_noise.setter
+  def use_noise( self, mode ):
     """Allows for optionally evaluating without noise inputs."""
-    if not self.training and self._trained_with_noise:
-      self._use_noise = mode
+    if self.training:
+      raise Exception( 'Once use_noise argument is set, it cannot be changed' + \
+                       ' for training purposes. It can, however, be changed in eval mode.' )
+    elif not self._trained_with_noise:
+      raise Exception( 'Model was not trained with noise, so cannot use noise in eval mode.' )
     else:
-      raise Exception( 'Unable to set `self._use_noise` because either not in' + \
-                       ' evaluation mode or model was not trained with noise or both.' )
+      self._use_noise = mode
 
   @property
   def w_eval_psi( self ):
@@ -369,12 +376,9 @@ class StyleGenerator( StyleGAN ):
 
   @w_eval_psi.setter
   def w_eval_psi( self, new_w_eval_psi ):
-    """Change this to your choosing (but only in evaluation mode)."""
+    """Change this to your choosing (but only in evaluation mode), optionally allowing for |psi| to be > 1."""
     if not self.training:
-      if 0. <= new_w_eval_psi < 1.:
-        self._w_eval_psi = new_w_eval_psi
-      else:
-        raise ValueError( 'Input psi value for truncation trick on w must be in range [0,1].' )
+      self._w_eval_psi = new_w_eval_psi
     else:
       raise Exception( 'Can only alter psi value for truncation trick on w during evaluation mode.' )
 
@@ -386,12 +390,13 @@ class StyleGenerator( StyleGAN ):
   def trunc_cutoff_stage( self, new_trunc_cutoff_stage ):
     """Change this to your choosing (but only in evaluation mode)."""
     if not self.training:
+      _final_stage = int( np.log2( self.final_res ) ) - 1
       if ( isinstance( new_trunc_cutoff_stage, int ) and \
-        0 < new_trunc_cutoff_stage <= int( np.log2( self.final_res ) ) - 2 ) or \
-        new_trunc_cutoff_stage is None:
+        0 < new_trunc_cutoff_stage <= _final_stage ) or new_trunc_cutoff_stage is None:
         self._trunc_cutoff_stage = new_trunc_cutoff_stage
       else:
-        raise ValueError( 'Input cutoff stage for truncation trick on w must be of type `int` in range (0,final stage] or `None`.' )
+        message = f'Input cutoff stage for truncation trick on w must be of type `int` in range (0,{_final_stage}] or `None`.'
+        raise ValueError( message )
     else:
       raise Exception( 'Can only alter cutoff stage for truncation trick on w during evaluation mode.' )
 
@@ -417,6 +422,8 @@ class StyleGenerator( StyleGAN ):
           self.w_ewma = x.detach().clone().mean( dim = 0 )
         else:
           with torch.no_grad():
+            # TODO: Implement a memory-efficient method to compute this for the ewma generator
+            #       (currently just using the same average w for the generator and the ewma generator)
             self.w_ewma = x.mean( dim = 0 ) * ( 1. - self.w_ewma_beta ) + \
                           self.w_ewma * ( self.w_ewma_beta )
       # Evaluation Mode Only:
@@ -429,7 +436,7 @@ class StyleGenerator( StyleGAN ):
       for n, layer in enumerate( self.gen_layers[ :-2 ] ):
         if n:
           out = layer[ 0 ]( out )
-        if self._use_noise:
+        if self.use_noise:
           out = layer[ 1 ]( out, noise = noise[ n ] if noise is not None else None )
         out = layer[ 2 ]( out )
 
@@ -462,7 +469,7 @@ class StyleGenerator( StyleGAN ):
         x = self.z_to_w( x )
       yf = self.gen_layers[ -1 ][ 3 ]( x ).view( -1, 2, self.gen_layers[ -1 ][ 3 ].nout_feat // 2, 1, 1 )
 
-      if self._use_noise:
+      if self.use_noise:
         return self.upsampler_skip_connection( self.prev_torgb( out ) ) * ( 1. - self.alpha ) + \
           self.torgb(
             self.gen_layers[ -1 ][ 2 ]( self.gen_layers[ -1 ][ 1 ]( self.gen_layers[ -1 ][ 0 ](
@@ -481,7 +488,7 @@ class StyleGenerator( StyleGAN ):
       for n, layer in enumerate( self.gen_layers ):
         if n:
           out = layer[ 0 ]( out )
-        if self._use_noise:
+        if self.use_noise:
           out = layer[ 1 ]( out, noise = noise[ n ] if noise is not None else None )
         out = layer[ 2 ]( out )
 
@@ -499,9 +506,9 @@ class StyleGenerator( StyleGAN ):
           assert ( style_mixing_stage and not self.training and isinstance( x_mixing, torch.Tensor ) )
           x = self.z_to_w( x_mixing )
           # the new z that is sampled for style-mixing is already de-truncated
-          if self.use_truncation_trick and n < self.trunc_cutoff_stage:
+          if self.use_truncation_trick and self.trunc_cutoff_stage is not None and n < 2*self.trunc_cutoff_stage:
             x = self.w_ewma.expand_as( x ) + self.w_eval_psi * ( x - self.w_ewma.expand_as( x ) )
-        elif self.use_truncation_trick and not self.training and n == self.trunc_cutoff_stage:
+        elif self.use_truncation_trick and not self.training and self.trunc_cutoff_stage is not None and n == 2*self.trunc_cutoff_stage:
           # de-truncate w for higher resolutions; more memory-efficient than defining 2 w's
           x = ( x - self.w_ewma.expand_as( x ) ).div( self.w_eval_psi ) + self.w_ewma.expand_as( x )
 

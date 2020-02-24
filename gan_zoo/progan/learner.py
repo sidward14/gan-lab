@@ -105,7 +105,8 @@ class ProGANLearner( GANLearner ):
                                        NONREDEFINABLE_ATTRS,
                                        REDEFINABLE_FROM_LEARNER_ATTRS )
       # pretrained models loaded later on for evaluation should not require data_config.py to have been run:
-      self._get_data_config( raise_exception = False )
+      self._is_data_configed = False; self._stats_set = False
+      self._update_data_config( raise_exception = False )
 
       self.latent_distribution = self.config.latent_distribution
 
@@ -135,7 +136,7 @@ class ProGANLearner( GANLearner ):
         nl = self.nl,
         num_classes = self.num_classes_disc,
         equalized_lr = self.config.use_equalized_lr,
-        mbstd_group_size = self.config.mbstd_group_size,
+        mbstd_group_size = self.config.mbstd_group_size
       )
 
       # If one wants to start at a higher resolution than 4:
@@ -237,7 +238,10 @@ class ProGANLearner( GANLearner ):
     """Metric evaluation, run periodically during training or independently by the user."""
 
     if not self._is_data_configed:
-      self._get_data_config( raise_exception = True )
+      self._update_data_config( raise_exception = True )
+    self.data_config = get_current_configuration( 'data_config', raise_exception = True )
+    _ds_mean_unsq = self.ds_mean.unsqueeze( dim = 0 )
+    _ds_std_unsq = self.ds_std.unsqueeze( dim = 0 )
 
     metrics_type = metrics_type.casefold()
     if metrics_type not in ( 'generator', 'critic', 'discriminator', ):
@@ -255,7 +259,7 @@ class ProGANLearner( GANLearner ):
         self.gen_model_lagged.train()
         if self.beta:
           self.gen_model_lagged.apply( self.apply_lagged_weights )
-          print( f'{self._param_tensor_num} parameters in Generator.' )
+          # print( f'{self._param_tensor_num} parameters in Generator.' )
           self._param_tensor_num = 0
       self.gen_model_lagged.to( self.config.metrics_dev )
       self.gen_model_lagged.eval()
@@ -354,7 +358,7 @@ class ProGANLearner( GANLearner ):
             # Fade in the real images the same way the generated images are being faded in:
             if self.gen_model.fade_in_phase:
               if self.config.bit_exact_resampling:
-                xb_low_res = xb.clone().mul( self._ds_std_unsq ).add( self._ds_mean_unsq )
+                xb_low_res = xb.clone().mul( _ds_std_unsq ).add( _ds_mean_unsq )
                 for sample_idx in range( len( xb_low_res ) ):
                   xb_low_res[ sample_idx ] = self.ds_sc_resizer( xb_low_res[ sample_idx ] )
                 xb = torch.add( xb_low_res.mul( 1. - self.gen_model.alpha ), xb.mul( self.gen_model.alpha ) )
@@ -423,8 +427,9 @@ class ProGANLearner( GANLearner ):
     self.num_main_iters = num_main_iters
     self.dataset_sz = len( train_dl.dataset )
 
-    if not self._is_data_configed:
-      self._get_data_config( raise_exception = True )
+    self._update_data_config( raise_exception = True )
+    _ds_mean_unsq = self.ds_mean.unsqueeze( dim = 0 )
+    _ds_std_unsq = self.ds_std.unsqueeze( dim = 0 )
 
     self.gen_model.to( self.config.dev )
     self.gen_model.train()
@@ -435,16 +440,17 @@ class ProGANLearner( GANLearner ):
       self.gen_model_lagged.train()
 
     # Initialize number of images before transition to next fade-in/stabilization phase:
-    if self.not_trained_yet:
+    if self.not_trained_yet or self.pretrained_model:
       if ( self.config.nimg_transition % self.batch_size ) != 0:
         self.nimg_transition = self.batch_size * ( int( self.config.nimg_transition / self.batch_size ) + 1 )
       else:
         self.nimg_transition = self.config.nimg_transition
 
+    if self.not_trained_yet:
       self.nimg_transition_lst = [ self.nimg_transition ]
 
     # Initialize validation EWMA smoothing of generator weights & biases:
-    if self.not_trained_yet:
+    if self.not_trained_yet or self.pretrained_model:
       self.beta = None
       if self.config.use_ewma_gen:
         if COMPUTE_EWMA_VIA_HALFLIFE:
@@ -458,7 +464,8 @@ class ProGANLearner( GANLearner ):
 
     # Set scheduler on every run:
     if self.sched_bool:
-      self.sched_stop_step = 0
+      if not self.pretrained_model:
+        self.sched_stop_step = 0
       self._set_scheduler( )
     elif self.pretrained_model:
       self.scheduler_gen = self._scheduler_gen_state_dict  #  = None
@@ -471,7 +478,37 @@ class ProGANLearner( GANLearner ):
     else:
       print( 'CONTINUING FROM WHERE YOU LEFT OFF:' )
       if self.pretrained_model:
+        train_dl.batch_sampler.batch_size = self.batch_size
+        train_dl.dataset.transforms.transform.transforms = \
+          self.increase_real_data_res( transforms_lst = train_dl.dataset.transforms.transform.transforms )
+
         self.train_dataiter = iter( train_dl )
+
+        if valid_dl is not None:
+          valid_dl.batch_sampler.batch_size = self.batch_size
+          valid_dl.dataset.transforms.transform.transforms = \
+            self.increase_real_data_res( transforms_lst = valid_dl.dataset.transforms.transform.transforms )
+
+        if z_valid_dl is not None:
+          z_valid_dl.batch_sampler.batch_size = self.batch_size
+
+    if self.pretrained_model and self.gen_model.fade_in_phase:
+      if self.config.bit_exact_resampling:
+        for transform in self.train_dataiter._dataset.transforms.transform.transforms:
+          if isinstance( transform, transforms.Normalize ):
+            _nrmlz_transform = transform
+        self.ds_sc_resizer = \
+          self.get_real_data_skip_connection_transforms( self.data_config.dataset_downsample_type, _nrmlz_transform )
+      else:
+        # matches the model's skip-connection upsampler
+        self.ds_sc_upsampler = lambda xb: F.interpolate( xb, scale_factor = 2, mode = 'nearest' )
+        # matches the dataset's downsampler
+        if self.data_config.dataset_downsample_type in ( Image.BOX, Image.BILINEAR, ):
+          self.ds_sc_downsampler = lambda xb: F.avg_pool2d( xb, kernel_size = 2, stride = 2 )
+        elif self.data_config.dataset_downsample_type == Image.NEAREST:
+          self.ds_sc_downsampler = lambda xb: F.interpolate( xb, scale_factor = .5, mode = 'nearest' )
+
+      self.delta_alpha = self.batch_size / ( ( self.nimg_transition / num_disc_iters ) - self.batch_size )
 
     # ------------------------------------------------------------------------ #
 
@@ -584,7 +621,7 @@ class ProGANLearner( GANLearner ):
             # ---------------- #
 
             self.delta_alpha = self.batch_size / ( ( self.nimg_transition / num_disc_iters ) - self.batch_size )
-            self.gen_model.alpha = 0  # this affects both networks
+            self.gen_model.alpha = 0  # this applies to both networks simultaneously
 
             # ---------------- #
 
@@ -631,9 +668,19 @@ class ProGANLearner( GANLearner ):
 
           self.nimg_transition_lst.append( self.nimg_transition )
 
+        else:
+          if not itr:
+            if self.gen_model.fade_in_phase:
+              print( f'\nFADING IN {int( self.gen_model.curr_res )}x' + \
+                    f'{int( self.gen_model.curr_res )} RESOLUTION...\n' )
+            else:
+              print( '\nSTABILIZING...\n' )
+
+      if not itr and not self.progressively_grow:
+        print( '\nSTABILIZING (FINAL)...\n' )
+
       # Final phase:
       if self.curr_img_num == sum( self.nimg_transition_lst ):
-
         # Update Optimizer:
         self._set_optimizer( )
 
@@ -689,7 +736,7 @@ class ProGANLearner( GANLearner ):
         if self.gen_model.fade_in_phase:
           with torch.no_grad():
             if self.config.bit_exact_resampling:
-              xb_low_res = xb.clone().mul( self._ds_std_unsq ).add( self._ds_mean_unsq )
+              xb_low_res = xb.clone().mul( _ds_std_unsq ).add( _ds_mean_unsq )
               for sample_idx in range( len( xb_low_res ) ):
                 xb_low_res[ sample_idx ] = self.ds_sc_resizer( xb_low_res[ sample_idx ] )
               xb = torch.add( xb_low_res.mul( 1. - self.gen_model.alpha ), xb.mul( self.gen_model.alpha ) )
@@ -852,6 +899,8 @@ class ProGANLearner( GANLearner ):
       if self.not_trained_yet:
         self.not_trained_yet = False
 
+    self._set_optimizer( )  # for niche case when training ends right when alpha becomes 1
+
     with torch.no_grad():
       self.gen_model.to( 'cpu' )
       if self.config.use_ewma_gen:
@@ -889,9 +938,14 @@ class ProGANLearner( GANLearner ):
     self.scheduler_disc = \
       torch.optim.lr_scheduler.LambdaLR( self.opt_disc, self.scheduler_fn, last_epoch = -1 )
 
-    if self.pretrained_model:
+    self._scheduler_gen_state_dict = self.scheduler_gen.state_dict()
+    self._scheduler_disc_state_dict = self.scheduler_disc.state_dict()
+    if self.pretrained_model and not self._sched_state_dict_set:
       self.scheduler_gen.load_state_dict( self._scheduler_gen_state_dict )
       self.scheduler_disc.load_state_dict( self._scheduler_disc_state_dict )
+      self._scheduler_gen_state_dict = self.scheduler_gen.state_dict()
+      self._scheduler_disc_state_dict = self.scheduler_disc.state_dict()
+      self._sched_state_dict_set = True
 
   def _set_optimizer( self ):
     if self._optimizer == 'adam':
@@ -930,25 +984,28 @@ class ProGANLearner( GANLearner ):
 
   def increase_real_data_res( self, transforms_lst:list ):
     if not self._is_data_configed:
-      self._get_data_config( raise_exception = True )
+      self._update_data_config( raise_exception = True )
 
     _num_rsz = 0
     for n, transform in enumerate( transforms_lst ):
       if isinstance( transform, transforms.Resize ):
         _num_rsz += 1
         if _num_rsz < 2:
-          transforms_lst[n] = transforms.Resize( size = ( self.gen_model.curr_res, self.gen_model.curr_res, ), interpolation = self.data_config.dataset_downsample_type )
+          transforms_lst[n] = transforms.Resize( size = ( self.gen_model.curr_res, self.gen_model.curr_res, ),
+                                                 interpolation = self.data_config.dataset_downsample_type )
         else:
           raise RuntimeWarning( 'Warning: More than 1 `Resize` transform found; only resized the first `Resize` in transforms list.' )
     return transforms_lst
 
   def get_real_data_skip_connection_transforms(self, ds_downsampler_type, nrmlz_transform ):
     return transforms.Compose( [ transforms.ToPILImage(),
-                                  transforms.Resize( size = ( self.disc_model.prev_res, self.disc_model.prev_res, ), interpolation = ds_downsampler_type ),
-                                  transforms.Resize( size = ( self.disc_model.curr_res, self.disc_model.curr_res, ), interpolation = Image.NEAREST ),
-                                  transforms.ToTensor(),
-                                  nrmlz_transform
-                                ] )
+                                 transforms.Resize( size = ( self.disc_model.prev_res, self.disc_model.prev_res, ),
+                                                    interpolation = ds_downsampler_type ),
+                                 transforms.Resize( size = ( self.disc_model.curr_res, self.disc_model.curr_res, ),
+                                                             interpolation = Image.NEAREST ),
+                                 transforms.ToTensor(),
+                                 nrmlz_transform
+                               ] )
 
   def get_smoothing_ewma_beta( self, half_life ):
     assert isinstance( half_life, float )
@@ -976,9 +1033,9 @@ class ProGANLearner( GANLearner ):
   @torch.no_grad()
   def plot_sample( self, z_test, label = None, time_average = True ):
     """Plots and shows 1 sample from input latent code."""
-    if not self.pretrained_model:
-      if not self._is_data_configed:
-        self._get_data_config( raise_exception = True )
+    if self.ds_mean is None or self.ds_std is None:
+      raise ValueError( "This model does not hold any information about your dataset's mean and/or std.\n" + \
+                        "Please provide these (either from your current data configuration or from your pretrained model)." )
 
     if z_test.dim() == 2:
       if z_test.shape[0] != 1:
@@ -1006,7 +1063,7 @@ class ProGANLearner( GANLearner ):
     _old_level = logger.level
     logger.setLevel( 100 )  # ignores potential "clipping input data" warning
     plt.imshow( ( ( ( x_test ) \
-                          .cpu().detach() * self._ds_std ) + self._ds_mean ) \
+                          .cpu().detach() * self.ds_std ) + self.ds_mean ) \
                           .numpy().transpose( 1, 2, 0 ), interpolation = 'none'
     )
     logger.setLevel( _old_level )
@@ -1015,9 +1072,9 @@ class ProGANLearner( GANLearner ):
   @torch.no_grad()
   def make_image_grid( self, zs, labels = None, time_average = True ):
     """Generates grid of images from input latent codes, whose size is `np.sqrt( len( zs ) )`."""
-    if not self.pretrained_model:
-      if not self._is_data_configed:
-        self._get_data_config( raise_exception = True )
+    if self.ds_mean is None or self.ds_std is None:
+      raise ValueError( "This model does not hold any information about your dataset's mean and/or std.\n" + \
+                        "Please provide these (either from your current data configuration or from your pretrained model)." )
 
     if not zs.dim() == 2:
       raise IndexError( 'Incorrect dimensions of input latent vector. Must be `dim == 2`.' )
@@ -1044,7 +1101,7 @@ class ProGANLearner( GANLearner ):
     for n, ax in enumerate( axs ):
       x = self.gen_model_lagged( zs[ n ] ).squeeze() if time_average else self.gen_model( zs[ n ] ).squeeze()
       ax.imshow(
-        ( ( x.cpu().detach() * self._ds_std ) + self._ds_mean ).numpy().transpose( 1, 2, 0 ),
+        ( ( x.cpu().detach() * self.ds_std ) + self.ds_mean ).numpy().transpose( 1, 2, 0 ),
         interpolation = 'none'
       )
       if labels is not None:
@@ -1058,10 +1115,211 @@ class ProGANLearner( GANLearner ):
 
   # .......................................................................... #
 
-  # TODO:
-  def save_model( self ):
-    raise NotImplementedError( 'Method `self.save_model` not yet implemented.' )
+  def save_model( self, save_path:Path ):
+    self.gen_model_metadata = { 'gen_model_upsampler': self.gen_model_upsampler,
+                                'num_classes_gen': self.num_classes_gen }
+    self.disc_model_metadata = { 'disc_model_downsampler': self.disc_model_downsampler,
+                                 'num_classes_disc': self.num_classes_disc }
 
-  # TODO:
-  def load_model( self ):
-    raise NotImplementedError( 'Method `self.load_model` not yet implemented.' )
+    scheduler_state_dict_save_args = {
+      'scheduler_gen_state_dict': self.scheduler_gen.state_dict() if self.sched_bool else None,
+      'scheduler_disc_state_dict': self.scheduler_disc.state_dict() if self.sched_bool else None
+    }
+
+    save_path = Path( save_path )
+    save_path.parents[0].mkdir( parents = True, exist_ok = True )
+
+    torch.save( {
+                'config': self.config,
+                'curr_res': self.gen_model.curr_res,
+                'alpha': self.gen_model.alpha,
+                'gen_model_metadata': self.gen_model_metadata,
+                'gen_model_state_dict': self.gen_model.state_dict(),
+                'gen_model_lagged_state_dict': self.gen_model_lagged.state_dict() if self.config.use_ewma_gen else None,
+                'disc_model_metadata': self.disc_model_metadata,
+                'disc_model_state_dict': self.disc_model.state_dict(),
+                'nl': self.nl,
+                'sched_stop_step': self.sched_stop_step,
+                'lr_sched': self.lr_sched,
+                **scheduler_state_dict_save_args,
+                'optimizer': self.optimizer,
+                'opt_gen_state_dict': self.opt_gen.state_dict(),
+                'opt_disc_state_dict': self.opt_disc.state_dict(),
+                'loss': self.loss,
+                'gradient_penalty': self.gradient_penalty,
+                'batch_size': self.batch_size,
+                'curr_dataset_batch_num': self.curr_dataset_batch_num,
+                'curr_epoch_num': self.curr_epoch_num,
+                'curr_valid_num': self.curr_valid_num,
+                'dataset_sz': self.dataset_sz,
+                'ac': self.ac,
+                'cond_gen': self.cond_gen,
+                'cond_disc': self.cond_disc,
+                'valid_z': self.valid_z.to( 'cpu' ),
+                'valid_label': self.valid_label,
+                'grid_inputs_constructed': self.grid_inputs_constructed,
+                'rand_idxs': self.rand_idxs,
+                'gen_metrics_num': self.gen_metrics_num,
+                'disc_metrics_num': self.disc_metrics_num,
+                'curr_img_num': self.curr_img_num,
+                'nimg_transition_lst': self.nimg_transition_lst,
+                'not_trained_yet': self.not_trained_yet,
+                'ds_mean': self.ds_mean,
+                'ds_std': self.ds_std,
+                'latent_distribution': self.latent_distribution,
+                'curr_phase_num': self.curr_phase_num,
+                'lagged_params': self.lagged_params,
+                'progressively_grow': self.progressively_grow }, save_path
+    )
+
+  def load_model( self, load_path, dev_of_saved_model = 'cpu' ):
+    dev_of_saved_model = dev_of_saved_model.casefold()
+    assert ( dev_of_saved_model == 'cpu' or dev_of_saved_model == 'cuda' )
+    _map_location = lambda storage,loc: storage if dev_of_saved_model == 'cpu' else None
+
+    checkpoint = torch.load( load_path, map_location = _map_location )
+
+    self.config = checkpoint[ 'config' ]
+
+    self.nl = checkpoint[ 'nl' ]
+
+    # Load pretrained neural networks:
+    global ProGAN, ProGenerator, ProDiscriminator
+    ProGAN = type( 'ProGAN', ( nn.Module, ABC, ), dict( ProGAN.__dict__ ) )
+    ProGAN.reset_state( )
+
+    ProGenerator = type( 'ProGenerator', ( ProGAN, ), dict( ProGenerator.__dict__ ) )
+    self.gen_model_metadata = checkpoint[ 'gen_model_metadata' ]
+    self.gen_model_upsampler = self.gen_model_metadata[ 'gen_model_upsampler' ]
+    self.num_classes_gen = self.gen_model_metadata[ 'num_classes_gen' ]
+    self.gen_model = ProGenerator(
+      final_res = self.config.res_samples,
+      len_latent = self.config.len_latent,
+      upsampler = self.gen_model_upsampler,
+      blur_type = self.config.blur_type,
+      nl = self.nl,
+      num_classes = self.num_classes_gen,
+      equalized_lr = self.config.use_equalized_lr,
+      normalize_z = self.config.normalize_z,
+      use_pixelnorm = self.config.use_pixelnorm
+    )
+
+    ProDiscriminator = type( 'ProDiscriminator', ( ProGAN, ), dict( ProDiscriminator.__dict__ ) )
+    self.disc_model_metadata = checkpoint[ 'disc_model_metadata' ]
+    self.disc_model_downsampler = self.disc_model_metadata[ 'disc_model_downsampler' ]
+    self.num_classes_disc = self.disc_model_metadata[ 'num_classes_disc' ]
+    self.disc_model = ProDiscriminator(
+      final_res = self.config.res_samples,
+      pooler = self.disc_model_downsampler,
+      blur_type = self.config.blur_type,
+      nl = self.nl,
+      num_classes = self.num_classes_disc,
+      equalized_lr = self.config.use_equalized_lr,
+      mbstd_group_size = self.config.mbstd_group_size
+    )
+
+    assert self.config.init_res <= self.config.res_samples
+
+    # If pretrained model started at a higher resolution than 4:
+    _curr_res = checkpoint[ 'curr_res' ]
+    if _curr_res > 4:
+      _init_res_log2 = int( np.log2( _curr_res ) )
+      if float( _curr_res ) != 2**_init_res_log2:
+        raise ValueError( 'Only resolutions that are powers of 2 are supported.' )
+      num_scale_inc = _init_res_log2 - 2
+      for _ in range( num_scale_inc ):
+        self.gen_model.increase_scale()
+        self.disc_model.increase_scale()
+
+    # this applies to both networks simultaneously and takes care of fade_in_phase
+    self.gen_model.alpha = checkpoint[ 'alpha' ]
+
+    # Generator and Discriminator state data must match:
+    assert self.gen_model.cls_base.__dict__ == \
+           self.disc_model.cls_base.__dict__
+
+    # Initialize EWMA Generator Model:
+    self.gen_model_lagged = None
+    if self.config.use_ewma_gen:
+      _orig_mode = self.gen_model.training
+      self.gen_model.train()
+      self.gen_model.to( 'cpu' )
+      with torch.no_grad():
+        self.gen_model_lagged = copy.deepcopy( self.gen_model )  # for memory efficiency in GPU
+        self.gen_model_lagged.to( self.config.metrics_dev )
+        self.gen_model_lagged.train( mode = _orig_mode )
+      self.gen_model.train( mode = _orig_mode )
+
+    self.gen_model.to( self.config.dev )
+    self.gen_model.load_state_dict( checkpoint[ 'gen_model_state_dict' ] )
+    self.gen_model.zero_grad()
+    if self.config.use_ewma_gen:
+      self.gen_model_lagged.load_state_dict( checkpoint[ 'gen_model_lagged_state_dict' ] )
+      self.gen_model_lagged.to( self.config.metrics_dev )
+      self.gen_model_lagged.zero_grad()
+    self.disc_model.to( self.config.dev )
+    self.disc_model.load_state_dict( checkpoint[ 'disc_model_state_dict' ] )
+    self.disc_model.zero_grad()
+
+    self.sched_stop_step = checkpoint[ 'sched_stop_step' ]
+    self.lr_sched = checkpoint[ 'lr_sched' ]
+    self._scheduler_gen_state_dict = checkpoint['scheduler_gen_state_dict']
+    self._scheduler_disc_state_dict = checkpoint['scheduler_disc_state_dict']
+    self._sched_state_dict_set = False
+
+    self.optimizer = checkpoint['optimizer']
+    self.opt_gen.load_state_dict( checkpoint['opt_gen_state_dict'] )
+    self.opt_disc.load_state_dict( checkpoint['opt_disc_state_dict'] )
+
+    self.batch_size = checkpoint['batch_size']
+
+    self.loss = checkpoint['loss']
+
+    self.gradient_penalty = checkpoint['gradient_penalty']
+
+    self.curr_dataset_batch_num = checkpoint['curr_dataset_batch_num']
+    self.curr_epoch_num = checkpoint['curr_epoch_num']
+    self.curr_valid_num = checkpoint['curr_valid_num']
+    self.dataset_sz = checkpoint['dataset_sz']
+
+    self.ac = checkpoint['ac']
+    self.cond_gen = checkpoint['cond_gen']
+    self._tensor = torch.FloatTensor
+    if self.config.dev == torch.device( 'cuda' ):
+      self._tensor = torch.cuda.FloatTensor
+    if self.cond_gen:
+      self.labels_one_hot_disc = self._tensor( self.batch_size, self.num_classes )
+      self.labels_one_hot_gen = self._tensor( self.batch_size * self.config.gen_bs_mult, self.num_classes )
+    self.cond_disc = checkpoint['cond_disc']
+
+    self.valid_z = checkpoint['valid_z'].to( self.config.metrics_dev )
+    self.valid_label = checkpoint['valid_label']
+    if self.valid_label is not None:
+      self.valid_label = self.valid_label.to( 'cpu' )
+    self.grid_inputs_constructed = checkpoint['grid_inputs_constructed']
+    self.rand_idxs = checkpoint['rand_idxs']
+    self.gen_metrics_num = checkpoint['gen_metrics_num']
+    self.disc_metrics_num = checkpoint['disc_metrics_num']
+
+    self.curr_img_num = checkpoint[ 'curr_img_num' ]
+    self.nimg_transition_lst = checkpoint[ 'nimg_transition_lst' ]
+
+    self.not_trained_yet = checkpoint['not_trained_yet']
+
+    # By default, use the pretrained model's statistics (you can change this by changing ds_mean and ds_std manually)
+    self.ds_mean = checkpoint['ds_mean']
+    self.ds_std = checkpoint['ds_std']
+    if self._is_data_configed:
+      self.data_config.ds_mean = self.ds_mean.squeeze().tolist()
+      self.data_config.ds_std = self.ds_std.squeeze().tolist()
+
+    self.latent_distribution = checkpoint[ 'latent_distribution' ]
+    self.curr_phase_num = checkpoint[ 'curr_phase_num' ]
+    self.eps = False
+    if self.config.eps_drift > 0:
+      self.eps = True
+    self.lagged_params = checkpoint[ 'lagged_params' ]
+    self._progressively_grow = checkpoint[ 'progressively_grow' ]
+
+
+    self.pretrained_model = True

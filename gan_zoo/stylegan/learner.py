@@ -103,7 +103,8 @@ class StyleGANLearner( ProGANLearner ):
                                        NONREDEFINABLE_ATTRS,
                                        REDEFINABLE_FROM_LEARNER_ATTRS )
       # pretrained models loaded later on for evaluation should not require data_config.py to have been run:
-      self._get_data_config( raise_exception = False )
+      self._is_data_configed = False; self._stats_set = False
+      self._update_data_config( raise_exception = False )
 
       self._latent_distribution = self.config.latent_distribution
 
@@ -241,6 +242,8 @@ class StyleGANLearner( ProGANLearner ):
     new_latent_distribution = new_latent_distribution.casefold()
     self._latent_distribution = new_latent_distribution
     self.gen_model.latent_distribution = new_latent_distribution
+    if self.config.use_ewma_gen:
+      self.gen_model_lagged.latent_distribution = new_latent_distribution
 
   # def reset_stylegan_state( self ):
   #   self.gen_model.cls_base.reset_state( )  # this applies to both networks simultaneously
@@ -250,9 +253,9 @@ class StyleGANLearner( ProGANLearner ):
   @torch.no_grad()
   def plot_sample( self, z_test, z_mixing = None, style_mixing_stage = None, noise = None, label = None, time_average = True ):
     """Plots and shows 1 sample from input latent code; offers stylemixing and noise input capabilities."""
-    if not self.pretrained_model:
-      if not self._is_data_configed:
-        self._get_data_config( raise_exception = True )
+    if self.ds_mean is None or self.ds_std is None:
+      raise ValueError( "This model does not hold any information about your dataset's mean and/or std.\n" + \
+                        "Please provide these (either from your current data configuration or from your pretrained model)." )
 
     for z in ( z_test, z_mixing, ):
       if z is not None:
@@ -292,7 +295,7 @@ class StyleGANLearner( ProGANLearner ):
     _old_level = logger.level
     logger.setLevel( 100 )  # ignores potential "clipping input data" warning
     plt.imshow( ( ( ( x_test ) \
-                          .cpu().detach() * self._ds_std ) + self._ds_mean ) \
+                          .cpu().detach() * self.ds_std ) + self.ds_mean ) \
                           .numpy().transpose( 1, 2, 0 ), interpolation = 'none'
     )
     logger.setLevel( _old_level )
@@ -302,9 +305,9 @@ class StyleGANLearner( ProGANLearner ):
   def make_stylemixing_grid( self, zs_sourceb, zs_coarse = [], zs_middle = [], zs_fine = [], labels = None, time_average = True ):
     """Generates style-mixed grid of images, emulating Figure 3 in Karras et al. 2019."""
     assert any( len( zs ) for zs in ( zs_coarse, zs_middle, zs_fine, ) )
-    if not self.pretrained_model:
-      if not self._is_data_configed:
-        self._get_data_config( raise_exception = True )
+    if self.ds_mean is None or self.ds_std is None:
+      raise ValueError( "This model does not hold any information about your dataset's mean and/or std.\n" + \
+                        "Please provide these (either from your current data configuration or from your pretrained model)." )
 
     szs = []
     stages = [ 0 ]
@@ -388,7 +391,7 @@ class StyleGANLearner( ProGANLearner ):
                 x = self.gen_model_lagged( zs[ row - cum_szs[m-1] - 1 ], x_mixing = zs_sourceb[ col - 1 ], style_mixing_stage = stages[ m ] ).squeeze() if time_average else \
                     self.gen_model( zs[ row - cum_szs[m-1] - 1 ], x_mixing = zs_sourceb[ col - 1 ], style_mixing_stage = stages[ m ] ).squeeze()
               axs[row][col].imshow(
-                ( ( x.cpu().detach() * self._ds_std ) + self._ds_mean ).numpy().transpose( 1, 2, 0 ), interpolation = 'none'
+                ( ( x.cpu().detach() * self.ds_std ) + self.ds_mean ).numpy().transpose( 1, 2, 0 ), interpolation = 'none'
               )
               if labels is not None:
                 axs[row][col].set_title( str( labels[ row*ncols_tot + col ].item() ) )
@@ -416,3 +419,244 @@ class StyleGANLearner( ProGANLearner ):
     logger.setLevel( _old_level )
 
     return ( fig, axs, )
+
+  # .......................................................................... #
+
+  def save_model( self, save_path:Path ):
+    self.gen_model_metadata = { 'gen_model_upsampler': self.gen_model_upsampler,
+                                'num_classes_gen': self.num_classes_gen }
+    self.disc_model_metadata = { 'disc_model_downsampler': self.disc_model_downsampler,
+                                 'num_classes_disc': self.num_classes_disc }
+
+    scheduler_state_dict_save_args = {
+      'scheduler_gen_state_dict': self.scheduler_gen.state_dict() if self.sched_bool else None,
+      'scheduler_disc_state_dict': self.scheduler_disc.state_dict() if self.sched_bool else None
+    }
+
+    save_path = Path( save_path )
+    save_path.parents[0].mkdir( parents = True, exist_ok = True )
+
+    torch.save( {
+                'config': self.config,
+                'curr_res': self.gen_model.curr_res,
+                'alpha': self.gen_model.alpha,
+                'use_truncation_trick': self.gen_model.use_truncation_trick,
+                'trunc_cutoff_stage': self.gen_model.trunc_cutoff_stage,
+                'w_eval_psi': self.gen_model.w_eval_psi,
+                'w_ewma_beta': self.gen_model.w_ewma_beta,
+                'w_ewma': self.gen_model.w_ewma.to( 'cpu' ),
+                'w_ewma_lagged': self.gen_model_lagged.w_ewma.to( 'cpu' ) if self.config.use_ewma_gen else None,
+                'trained_with_noise': self.gen_model._trained_with_noise,
+                'pct_mixing_reg': self.gen_model.pct_mixing_reg,
+                'gen_model_metadata': self.gen_model_metadata,
+                'gen_model_state_dict': self.gen_model.state_dict(),
+                'gen_model_lagged_state_dict': self.gen_model_lagged.state_dict() if self.config.use_ewma_gen else None,
+                'disc_model_metadata': self.disc_model_metadata,
+                'disc_model_state_dict': self.disc_model.state_dict(),
+                'nl': self.nl,
+                'sched_stop_step': self.sched_stop_step,
+                'lr_sched': self.lr_sched,
+                **scheduler_state_dict_save_args,
+                'optimizer': self.optimizer,
+                'opt_gen_state_dict': self.opt_gen.state_dict(),
+                'opt_disc_state_dict': self.opt_disc.state_dict(),
+                'loss': self.loss,
+                'gradient_penalty': self.gradient_penalty,
+                'batch_size': self.batch_size,
+                'curr_dataset_batch_num': self.curr_dataset_batch_num,
+                'curr_epoch_num': self.curr_epoch_num,
+                'curr_valid_num': self.curr_valid_num,
+                'dataset_sz': self.dataset_sz,
+                'ac': self.ac,
+                'cond_gen': self.cond_gen,
+                'cond_disc': self.cond_disc,
+                'valid_z': self.valid_z.to( 'cpu' ),
+                'valid_label': self.valid_label,
+                'grid_inputs_constructed': self.grid_inputs_constructed,
+                'rand_idxs': self.rand_idxs,
+                'gen_metrics_num': self.gen_metrics_num,
+                'disc_metrics_num': self.disc_metrics_num,
+                'curr_img_num': self.curr_img_num,
+                'nimg_transition_lst': self.nimg_transition_lst,
+                'not_trained_yet': self.not_trained_yet,
+                'ds_mean': self.ds_mean,
+                'ds_std': self.ds_std,
+                'latent_distribution': self.latent_distribution,
+                'curr_phase_num': self.curr_phase_num,
+                'lagged_params': self.lagged_params,
+                'progressively_grow': self.progressively_grow }, save_path
+    )
+
+  def load_model( self, load_path, dev_of_saved_model = 'cpu' ):
+    dev_of_saved_model = dev_of_saved_model.casefold()
+    assert ( dev_of_saved_model == 'cpu' or dev_of_saved_model == 'cuda' )
+    _map_location = lambda storage,loc: storage if dev_of_saved_model == 'cpu' else None
+
+    checkpoint = torch.load( load_path, map_location = _map_location )
+
+    self.config = checkpoint[ 'config' ]
+
+    self.nl = checkpoint[ 'nl' ]
+    self._latent_distribution = checkpoint[ 'latent_distribution' ]
+
+    # Load pretrained neural networks:
+    global StyleGAN, StyleGenerator, ProDiscriminator, StyleDiscriminator
+    StyleGAN = type( 'StyleGAN', ( nn.Module, ABC, ), dict( StyleGAN.__dict__ ) )
+    StyleGAN.reset_state( )
+
+    StyleGenerator = type( 'StyleGenerator', ( StyleGAN, ), dict( StyleGenerator.__dict__ ) )
+    self.gen_model_metadata = checkpoint[ 'gen_model_metadata' ]
+    self.gen_model_upsampler = self.gen_model_metadata[ 'gen_model_upsampler' ]
+    self.num_classes_gen = self.gen_model_metadata[ 'num_classes_gen' ]
+    self.gen_model = StyleGenerator(
+      final_res = self.config.res_samples,
+      latent_distribution = self._latent_distribution,
+      len_latent = self.config.len_latent,
+      len_dlatent = self.config.len_dlatent,
+      mapping_num_fcs = self.config.mapping_num_fcs,
+      mapping_lrmul = self.config.mapping_lrmul,
+      use_instancenorm = self.config.use_instancenorm,
+      use_noise = self.config.use_noise,
+      upsampler = self.gen_model_upsampler,
+      blur_type = self.config.blur_type,
+      nl = self.nl,
+      num_classes = self.num_classes_gen,
+      equalized_lr = self.config.use_equalized_lr,
+      normalize_z = self.config.normalize_z,
+      use_pixelnorm = self.config.use_pixelnorm,
+      pct_mixing_reg = self.config.pct_mixing_reg,
+      truncation_trick_params = { 'beta': self.config.beta_trunc_trick,
+                                  'psi': self.config.psi_trunc_trick,
+                                  'cutoff_stage': self.config.cutoff_trunc_trick }
+    )
+    self.gen_model.w_ewma_beta = checkpoint[ 'w_ewma_beta' ]
+    self.gen_model._w_eval_psi = checkpoint[ 'w_eval_psi' ]
+    self.gen_model._trunc_cutoff_stage = checkpoint[ 'trunc_cutoff_stage' ]
+    self.gen_model.use_truncation_trick = checkpoint[ 'use_truncation_trick' ]
+    self.gen_model.w_ewma = checkpoint[ 'w_ewma' ]
+    self.gen_model._trained_with_noise = checkpoint[ 'trained_with_noise' ]
+    self.gen_model._use_noise = checkpoint[ 'trained_with_noise' ]
+    self.gen_model.pct_mixing_reg = checkpoint[ 'pct_mixing_reg' ]
+    self.gen_model._use_mixing_reg = True if self.gen_model.pct_mixing_reg else False
+
+    # Create `StyleDiscriminator` type object by converting `ProDiscriminator` class into `StyleDiscriminator` class:
+    StyleDiscriminator = type( 'StyleDiscriminator', ( StyleGAN, ), dict( ProDiscriminator.__dict__ ) )
+    self.disc_model_metadata = checkpoint[ 'disc_model_metadata' ]
+    self.disc_model_downsampler = self.disc_model_metadata[ 'disc_model_downsampler' ]
+    self.num_classes_disc = self.disc_model_metadata[ 'num_classes_disc' ]
+    self.disc_model = StyleDiscriminator(
+      final_res = self.config.res_samples,
+      pooler = self.disc_model_downsampler,
+      blur_type = self.config.blur_type,
+      nl = self.nl,
+      num_classes = self.num_classes_disc,
+      equalized_lr = self.config.use_equalized_lr,
+      mbstd_group_size = self.config.mbstd_group_size
+    )
+
+    assert self.config.init_res <= self.config.res_samples
+
+    # If pretrained model started at a higher resolution than 4:
+    _curr_res = checkpoint[ 'curr_res' ]
+    if _curr_res > 4:
+      _init_res_log2 = int( np.log2( _curr_res ) )
+      if float( _curr_res ) != 2**_init_res_log2:
+        raise ValueError( 'Only resolutions that are powers of 2 are supported.' )
+      num_scale_inc = _init_res_log2 - 2
+      for _ in range( num_scale_inc ):
+        self.gen_model.increase_scale()
+        self.disc_model.increase_scale()
+
+    # this applies to both networks simultaneously and takes care of fade_in_phase
+    self.gen_model.alpha = checkpoint[ 'alpha' ]
+
+    # Generator and Discriminator state data must match:
+    assert self.gen_model.cls_base.__dict__ == \
+           self.disc_model.cls_base.__dict__
+
+    # Initialize EWMA Generator Model:
+    self.gen_model_lagged = None
+    if self.config.use_ewma_gen:
+      _orig_mode = self.gen_model.training
+      self.gen_model.train()
+      self.gen_model.to( 'cpu' )
+      with torch.no_grad():
+        self.gen_model_lagged = copy.deepcopy( self.gen_model )  # for memory efficiency in GPU
+        self.gen_model_lagged.to( self.config.metrics_dev )
+        self.gen_model_lagged.train( mode = _orig_mode )
+      self.gen_model.train( mode = _orig_mode )
+
+    self.gen_model.to( self.config.dev )
+    self.gen_model.load_state_dict( checkpoint[ 'gen_model_state_dict' ] )
+    self.gen_model.zero_grad()
+    if self.config.use_ewma_gen:
+      self.gen_model_lagged.load_state_dict( checkpoint[ 'gen_model_lagged_state_dict' ] )
+      self.gen_model.w_ewma = checkpoint[ 'w_ewma_lagged' ]
+      self.gen_model_lagged.to( self.config.metrics_dev )
+      self.gen_model_lagged.zero_grad()
+    self.disc_model.to( self.config.dev )
+    self.disc_model.load_state_dict( checkpoint[ 'disc_model_state_dict' ] )
+    self.disc_model.zero_grad()
+
+    self.sched_stop_step = checkpoint[ 'sched_stop_step' ]
+    self.lr_sched = checkpoint[ 'lr_sched' ]
+    self._scheduler_gen_state_dict = checkpoint['scheduler_gen_state_dict']
+    self._scheduler_disc_state_dict = checkpoint['scheduler_disc_state_dict']
+    self._sched_state_dict_set = False
+
+    self.optimizer = checkpoint['optimizer']
+    self.opt_gen.load_state_dict( checkpoint['opt_gen_state_dict'] )
+    self.opt_disc.load_state_dict( checkpoint['opt_disc_state_dict'] )
+
+    self.batch_size = checkpoint['batch_size']
+
+    self.loss = checkpoint['loss']
+
+    self.gradient_penalty = checkpoint['gradient_penalty']
+
+    self.curr_dataset_batch_num = checkpoint['curr_dataset_batch_num']
+    self.curr_epoch_num = checkpoint['curr_epoch_num']
+    self.curr_valid_num = checkpoint['curr_valid_num']
+    self.dataset_sz = checkpoint['dataset_sz']
+
+    self.ac = checkpoint['ac']
+    self.cond_gen = checkpoint['cond_gen']
+    self._tensor = torch.FloatTensor
+    if self.config.dev == torch.device( 'cuda' ):
+      self._tensor = torch.cuda.FloatTensor
+    if self.cond_gen:
+      self.labels_one_hot_disc = self._tensor( self.batch_size, self.num_classes )
+      self.labels_one_hot_gen = self._tensor( self.batch_size * self.config.gen_bs_mult, self.num_classes )
+    self.cond_disc = checkpoint['cond_disc']
+
+    self.valid_z = checkpoint['valid_z'].to( self.config.metrics_dev )
+    self.valid_label = checkpoint['valid_label']
+    if self.valid_label is not None:
+      self.valid_label = self.valid_label.to( 'cpu' )
+    self.grid_inputs_constructed = checkpoint['grid_inputs_constructed']
+    self.rand_idxs = checkpoint['rand_idxs']
+    self.gen_metrics_num = checkpoint['gen_metrics_num']
+    self.disc_metrics_num = checkpoint['disc_metrics_num']
+
+    self.curr_img_num = checkpoint[ 'curr_img_num' ]
+    self.nimg_transition_lst = checkpoint[ 'nimg_transition_lst' ]
+
+    self.not_trained_yet = checkpoint['not_trained_yet']
+
+    # By default, use the pretrained model's statistics (you can change this by changing ds_mean and ds_std manually)
+    self.ds_mean = checkpoint['ds_mean']
+    self.ds_std = checkpoint['ds_std']
+    if self._is_data_configed:
+      self.data_config.ds_mean = self.ds_mean.squeeze().tolist()
+      self.data_config.ds_std = self.ds_std.squeeze().tolist()
+
+    self.latent_distribution = checkpoint[ 'latent_distribution' ]
+    self.curr_phase_num = checkpoint[ 'curr_phase_num' ]
+    self.eps = False
+    if self.config.eps_drift > 0:
+      self.eps = True
+    self.lagged_params = checkpoint[ 'lagged_params' ]
+    self._progressively_grow = checkpoint[ 'progressively_grow' ]
+
+
+    self.pretrained_model = True

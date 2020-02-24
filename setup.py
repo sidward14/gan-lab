@@ -14,7 +14,7 @@ def readme( ):
 
 setup(
   name = 'gan-zoo',
-  version = '0.1.7',
+  version = '0.2.0',
   author = 'Sidhartha Parhi',
   author_email = 'sidhartha.parhi@gmail.com',
   description = "StyleGAN, ProGAN, and ResNet GANs",
@@ -37,6 +37,7 @@ setup(
     'indexed.py >= 0.0.1',
     'torch >= 1.3.0',
     'torchvision >= 0.4.1',
+    'lmdb >= 0.97',
   ],
   python_requires = '>= 3.6',
   include_package_data = True,

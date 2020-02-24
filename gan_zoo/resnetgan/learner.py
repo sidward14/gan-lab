@@ -54,6 +54,7 @@ from utils.backprop_utils import wasserstein_distance_gen, \
                                  configure_adam_for_gan
 from utils.custom_layers import NearestPool2d, BilinearPool2d
 
+import copy
 import logging
 import warnings
 from pathlib import Path
@@ -93,6 +94,9 @@ class GANLearner( object ):
 
     self._model = config.model
 
+    # Set equal to `True` if `self.load_model()` method is called after initialization
+    self.pretrained_model = False
+
     _model_selected = False
     if self.model == 'ResNet GAN':
 
@@ -103,12 +107,10 @@ class GANLearner( object ):
                                        NONREDEFINABLE_ATTRS,
                                        REDEFINABLE_FROM_LEARNER_ATTRS )
       # pretrained models loaded later on for evaluation should not require data_config.py to have been run:
-      self._get_data_config( raise_exception = False )
+      self._is_data_configed = False; self._stats_set = False
+      self._update_data_config( raise_exception = False )
 
       _model_selected = True
-
-    # Overwritten to `True` if `self.load_model()` method is called after initialization
-    self.pretrained_model = False
 
     if _model_selected:
       self.batch_size = self.config.batch_size
@@ -177,11 +179,11 @@ class GANLearner( object ):
       if self.config.res_samples == 64:
         _gen_model = Generator64PixResnet
         _disc_model = DiscriminatorAC64PixResnet if self.ac else Discriminator64PixResnet
-        self.fmap_g = FMAP_G; self.fmap_d = FMAP_D
+        _fmap_g = FMAP_G; _fmap_d = FMAP_D
       elif self.config.res_samples == 32:
         _gen_model = Generator32PixResnet
         _disc_model = DiscriminatorAC32PixResnet if self.ac else Discriminator32PixResnet
-        self.fmap_g = FMAP_G*2; self.fmap_d = FMAP_D*2
+        _fmap_g = FMAP_G*2; _fmap_d = FMAP_D*2
       # TODO: Implement other kinds of GANs that are not ResNet-style GAN, ProGAN, or StyleGAN:
       # elif self.model in ( '___', '___' ):
       #   pass
@@ -197,26 +199,27 @@ class GANLearner( object ):
     if _model_selected:
       self.gen_model = _gen_model(
         len_latent = self.config.len_latent,
-        fmap = self.fmap_g,
+        fmap = _fmap_g,
         upsampler = self.gen_model_upsampler,
         blur_type = self.config.blur_type,
         nl = self.nl,
         num_classes = self.num_classes_gen,
-        equalized_lr = self.config.use_equalized_lr,
+        equalized_lr = self.config.use_equalized_lr
       )
 
       self.disc_model = _disc_model(
-        fmap = self.fmap_d,
+        fmap = _fmap_d,
         pooler = self.disc_model_downsampler,
         blur_type = self.config.blur_type,
         nl = self.nl,
         num_classes = self.num_classes_disc,
-        equalized_lr = self.config.use_equalized_lr,
+        equalized_lr = self.config.use_equalized_lr
       )
 
       self.gen_model.to( self.config.dev )
       self.disc_model.to( self.config.dev )
 
+      # Generator and Discriminator resolutions must match:
       assert self.gen_model.res == self.disc_model.res
 
     self._tensor = torch.FloatTensor
@@ -322,7 +325,8 @@ class GANLearner( object ):
     """Metric evaluation, run periodically during training or independently by the user."""
 
     if not self._is_data_configed:
-      self._get_data_config( raise_exception = True )
+      self._update_data_config( raise_exception = True )
+    self.data_config = get_current_configuration( 'data_config', raise_exception = True )
 
     self.gen_model.eval()
     self.disc_model.eval()
@@ -467,8 +471,7 @@ class GANLearner( object ):
     self.num_main_iters = num_main_iters
     self.dataset_sz = len( train_dl.dataset )
 
-    if not self._is_data_configed:
-      self._get_data_config( raise_exception = True )
+    self._update_data_config( raise_exception = True )
 
     self.gen_model.to( self.config.dev )
     self.gen_model.train()
@@ -477,7 +480,8 @@ class GANLearner( object ):
 
     # Set scheduler on every run:
     if self.sched_bool:
-      self.sched_stop_step = 0
+      if not self.pretrained_model:
+        self.sched_stop_step = 0
       self._set_scheduler( )
     elif self.pretrained_model:
       self.scheduler_gen = self._scheduler_gen_state_dict  #  = None
@@ -687,6 +691,7 @@ class GANLearner( object ):
   # .......................................................................... #
 
   def calc_gp( self, gen_data, real_data ):
+    """Method that takes care of all gradient regularizers."""
     if self.gradient_penalty in ( 'wgan-gp', 'r1', ):
       real_data = real_data.view(
         -1, FMAP_SAMPLES, real_data.shape[2], real_data.shape[3]
@@ -744,13 +749,15 @@ class GANLearner( object ):
   def lr_sched( self, new_lr_sched ):
     self._lr_sched = None
     self.sched_bool = False
-    self.sched_stop_step = None
+    if not self.pretrained_model:
+      self.sched_stop_step = None
     self.scheduler_gen = None
     self.scheduler_disc = None
     if new_lr_sched is not None:
       self._lr_sched = new_lr_sched.casefold()
       self.sched_bool = True
-      self.sched_stop_step = 0
+      if not self.pretrained_model:
+        self.sched_stop_step = 0
 
   def _set_scheduler( self ):
     # self.tot_num_epochs = ( self.batch_size * num_main_iters * num_disc_iters * 1. ) / self.dataset_sz
@@ -769,9 +776,14 @@ class GANLearner( object ):
     self.scheduler_disc = \
       torch.optim.lr_scheduler.LambdaLR( self.opt_disc, self.scheduler_fn, last_epoch = -1 )
 
-    if self.pretrained_model:
+    self._scheduler_gen_state_dict = self.scheduler_gen.state_dict()
+    self._scheduler_disc_state_dict = self.scheduler_disc.state_dict()
+    if self.pretrained_model and not self._sched_state_dict_set:
       self.scheduler_gen.load_state_dict( self._scheduler_gen_state_dict )
       self.scheduler_disc.load_state_dict( self._scheduler_disc_state_dict )
+      self._scheduler_gen_state_dict = self.scheduler_gen.state_dict()
+      self._scheduler_disc_state_dict = self.scheduler_disc.state_dict()
+      self._sched_state_dict_set = True
 
   @property
   def optimizer( self ):
@@ -859,9 +871,9 @@ class GANLearner( object ):
   @torch.no_grad()
   def plot_sample( self, z_test, label = None ):
     """Plots and shows 1 sample from input latent code."""
-    if not self.pretrained_model:
-      if not self._is_data_configed:
-        self._get_data_config( raise_exception = True )
+    if self.ds_mean is None or self.ds_std is None:
+      raise ValueError( "This model does not hold any information about your dataset's mean and/or std.\n" + \
+                        "Please provide these (either from your current data configuration or from your pretrained model)." )
 
     if z_test.dim() == 2:
       if z_test.shape[0] != 1:
@@ -889,7 +901,7 @@ class GANLearner( object ):
     _old_level = logger.level
     logger.setLevel( 100 )  # ignores potential "clipping input data" warning
     plt.imshow( ( ( ( x_test ) \
-                        .cpu().detach() * self._ds_std ) + self._ds_mean ) \
+                        .cpu().detach() * self.ds_std ) + self.ds_mean ) \
                         .numpy().transpose( 1, 2, 0 ), interpolation = 'none'
     )
     logger.setLevel( _old_level )
@@ -898,9 +910,9 @@ class GANLearner( object ):
   @torch.no_grad()
   def make_image_grid( self, zs, labels = None ):
     """Generates grid of images from input latent codes, whose size is `np.sqrt( len( zs ) )`."""
-    if not self.pretrained_model:
-      if not self._is_data_configed:
-        self._get_data_config( raise_exception = True )
+    if self.ds_mean is None or self.ds_std is None:
+      raise ValueError( "This model does not hold any information about your dataset's mean and/or std.\n" + \
+                        "Please provide these (either from your current data configuration or from your pretrained model)." )
 
     if not zs.dim() == 2:
       raise IndexError( 'Incorrect dimensions of input latent vector. Must be `dim == 2`.' )
@@ -927,7 +939,7 @@ class GANLearner( object ):
     for n, ax in enumerate( axs ):
       x = self.gen_model( zs[ n ] ).squeeze()
       ax.imshow(
-        ( ( x.cpu().detach() * self._ds_std ) + self._ds_mean ).numpy().transpose( 1, 2, 0 ),
+        ( ( x.cpu().detach() * self.ds_std ) + self.ds_mean ).numpy().transpose( 1, 2, 0 ),
         interpolation = 'none'
       )
       if labels is not None:
@@ -941,24 +953,43 @@ class GANLearner( object ):
 
   # .......................................................................... #
 
-  def _get_data_config( self, raise_exception = True ):
+  def _update_data_config( self, raise_exception = True ):
+    def _set_norm_statistics( ):
+      self._stats_set = True
+      # By default, use the pretrained model's or the previously-trained model's statistics (you can change this by changing ds_mean and ds_std manually)
+      if not self.pretrained_model:
+        self.ds_mean = torch.FloatTensor( self.data_config.ds_mean ).unsqueeze( dim = 1 ).unsqueeze( dim = 2 )
+        self.ds_std = torch.FloatTensor( self.data_config.ds_std ).unsqueeze( dim = 1 ).unsqueeze( dim = 2 )
+      self.data_config.ds_mean = self.ds_mean.squeeze().tolist()
+      self.data_config.ds_std = self.ds_std.squeeze().tolist()
+
+    if not self._is_data_configed and not self.pretrained_model:
+      self.ds_mean = None
+      self.ds_std = None
+    if self._is_data_configed or self._stats_set:
+      _set_norm_statistics( )
+
     self.data_config = get_current_configuration( 'data_config', raise_exception = raise_exception )
     self._is_data_configed = True if self.data_config is not None else False
-    if self._is_data_configed:
-      self._ds_mean = torch.FloatTensor( self.data_config.ds_mean ).unsqueeze( dim = 1 ).unsqueeze( dim = 2 )
-      self._ds_std = torch.FloatTensor( self.data_config.ds_std ).unsqueeze( dim = 1 ).unsqueeze( dim = 2 )
-      self._ds_mean_unsq = self._ds_mean.unsqueeze( dim = 0 )
-      self._ds_std_unsq = self._ds_std.unsqueeze( dim = 0 )
+    # self.num_datasets_used += 1 if self.data_config is not None else 0
+
+    if self._is_data_configed and not self._stats_set:
+      _set_norm_statistics( )
 
   # .......................................................................... #
 
   def save_model( self, save_path:Path ):
+    if self.config.res_samples == 64:
+      _fmap_g = FMAP_G; _fmap_d = FMAP_D
+    elif self.config.res_samples == 32:
+      _fmap_g = FMAP_G*2; _fmap_d = FMAP_D*2
+
     self.gen_model_metadata = { 'gen_model': self.gen_model.__class__,
-                                'fmap_g': self.fmap_g,
+                                'fmap_g': _fmap_g,
                                 'gen_model_upsampler': self.gen_model_upsampler,
                                 'num_classes_gen': self.num_classes_gen }
     self.disc_model_metadata = { 'disc_model': self.disc_model.__class__,
-                                 'fmap_d': self.fmap_d,
+                                 'fmap_d': _fmap_d,
                                  'disc_model_downsampler': self.disc_model_downsampler,
                                  'num_classes_disc': self.num_classes_disc }
 
@@ -976,6 +1007,8 @@ class GANLearner( object ):
                 'gen_model_state_dict': self.gen_model.state_dict(),
                 'disc_model_metadata': self.disc_model_metadata,
                 'disc_model_state_dict': self.disc_model.state_dict(),
+                'nl': self.nl,
+                'sched_stop_step': self.sched_stop_step,
                 'lr_sched': self.lr_sched,
                 **scheduler_state_dict_save_args,
                 'optimizer': self.optimizer,
@@ -997,58 +1030,76 @@ class GANLearner( object ):
                 'rand_idxs': self.rand_idxs,
                 'gen_metrics_num': self.gen_metrics_num,
                 'disc_metrics_num': self.disc_metrics_num,
-                'not_trained_yet': self.not_trained_yet }, save_path
+                'curr_img_num': self.curr_img_num,
+                'not_trained_yet': self.not_trained_yet,
+                'ds_mean': self.ds_mean,
+                'ds_std': self.ds_std }, save_path
     )
 
-  def load_model( self, load_path, dev = 'cpu' ):
-    dev = dev.casefold()
-    assert ( dev == 'cpu' or dev == 'cuda' )
-    _map_location = lambda storage,loc: storage if dev == 'cpu' else None
+  def load_model( self, load_path, dev_of_saved_model = 'cpu' ):
+    dev_of_saved_model = dev_of_saved_model.casefold()
+    assert ( dev_of_saved_model == 'cpu' or dev_of_saved_model == 'cuda' )
+    _map_location = lambda storage,loc: storage if dev_of_saved_model == 'cpu' else None
 
     checkpoint = torch.load( load_path, map_location = _map_location )
 
     self.config = checkpoint[ 'config' ]
 
+    self.nl = checkpoint[ 'nl' ]
+
+    # Load pretrained neural networks:
     self.gen_model_metadata = checkpoint[ 'gen_model_metadata' ]
-    self.fmap_g = self.gen_model_metadata[ 'fmap_g' ]
+    _fmap_g = self.gen_model_metadata[ 'fmap_g' ]
     self.gen_model_upsampler = self.gen_model_metadata[ 'gen_model_upsampler' ]
     self.num_classes_gen = self.gen_model_metadata[ 'num_classes_gen' ]
     self.gen_model = self.gen_model_metadata[ 'gen_model' ](
       len_latent = self.config.len_latent,
-      fmap = self.fmap_g,
+      fmap = _fmap_g,
       upsampler = self.gen_model_upsampler,
+      blur_type = self.config.blur_type,
+      nl = self.nl,
       num_classes = self.num_classes_gen,
-      blur_type = self.config.blur_type
+      equalized_lr = self.config.use_equalized_lr
     )
     self.gen_model.to( self.config.dev )
     self.gen_model.load_state_dict( checkpoint[ 'gen_model_state_dict' ] )
+    self.gen_model.zero_grad()
 
     self.disc_model_metadata = checkpoint[ 'disc_model_metadata' ]
-    self.fmap_d = self.disc_model_metadata[ 'fmap_d' ]
+    _fmap_d = self.disc_model_metadata[ 'fmap_d' ]
     self.disc_model_downsampler = self.disc_model_metadata[ 'disc_model_downsampler' ]
     self.num_classes_disc = self.disc_model_metadata[ 'num_classes_disc' ]
     self.disc_model = self.disc_model_metadata[ 'disc_model' ](
-      fmap = self.fmap_d,
+      fmap = _fmap_d,
       pooler = self.disc_model_downsampler,
+      blur_type = self.config.blur_type,
+      nl = self.nl,
       num_classes = self.num_classes_disc,
-      blur_type = self.config.blur_type
+      equalized_lr = self.config.use_equalized_lr
     )
     self.disc_model.to( self.config.dev )
     self.disc_model.load_state_dict( checkpoint[ 'disc_model_state_dict' ] )
+    self.disc_model.zero_grad()
 
+    # Generator and Discriminator resolutions must match:
+    assert self.gen_model.res == self.disc_model.res
+
+    self.sched_stop_step = checkpoint[ 'sched_stop_step' ]
     self.lr_sched = checkpoint[ 'lr_sched' ]
     self._scheduler_gen_state_dict = checkpoint['scheduler_gen_state_dict']
     self._scheduler_disc_state_dict = checkpoint['scheduler_disc_state_dict']
+    self._sched_state_dict_set = False
 
     self.optimizer = checkpoint['optimizer']
     self.opt_gen.load_state_dict( checkpoint['opt_gen_state_dict'] )
     self.opt_disc.load_state_dict( checkpoint['opt_disc_state_dict'] )
 
+    self.batch_size = checkpoint['batch_size']
+
     self.loss = checkpoint['loss']
 
     self.gradient_penalty = checkpoint['gradient_penalty']
 
-    self.batch_size = checkpoint['batch_size']
     self.curr_dataset_batch_num = checkpoint['curr_dataset_batch_num']
     self.curr_epoch_num = checkpoint['curr_epoch_num']
     self.curr_valid_num = checkpoint['curr_valid_num']
@@ -1066,12 +1117,23 @@ class GANLearner( object ):
 
     self.valid_z = checkpoint['valid_z'].to( self.config.dev )
     self.valid_label = checkpoint['valid_label']
+    if self.valid_label is not None:
+      self.valid_label = self.valid_label.to( 'cpu' )
     self.grid_inputs_constructed = checkpoint['grid_inputs_constructed']
     self.rand_idxs = checkpoint['rand_idxs']
     self.gen_metrics_num = checkpoint['gen_metrics_num']
     self.disc_metrics_num = checkpoint['disc_metrics_num']
 
+    self.curr_img_num = checkpoint[ 'curr_img_num' ]
+
     self.not_trained_yet = checkpoint['not_trained_yet']
+
+    # By default, use the pretrained model's statistics (you can change this by changing ds_mean and ds_std manually)
+    self.ds_mean = checkpoint['ds_mean']
+    self.ds_std = checkpoint['ds_std']
+    if self._is_data_configed:
+      self.data_config.ds_mean = self.ds_mean.squeeze().tolist()
+      self.data_config.ds_std = self.ds_std.squeeze().tolist()
 
 
     self.pretrained_model = True

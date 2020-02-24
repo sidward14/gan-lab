@@ -23,7 +23,11 @@ from resnetgan.learner import GANLearner
 from progan.learner import ProGANLearner
 from stylegan.learner import StyleGANLearner
 
-# from pathlib import Path
+from pathlib import Path
+
+# ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ #
+
+SAVE_MODEL_PATH = './models/gan_model.tar'
 
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ #
 
@@ -54,6 +58,6 @@ if __name__ == '__main__':
   # -------------------------------------------
   learner.train( train_dl, valid_dl, z_valid_dl )
 
-  # model_save_path = Path( './models/gan_model.tar' )
-  # model_save_path.mkdir( parents = True, exist_ok = True )
-  # learner.save_model( model_save_path )
+  # Save Model:
+  # -----------
+  learner.save_model( SAVE_MODEL_PATH )

@@ -80,9 +80,9 @@ def make_torchvision_dataset( dataset, dataset_dir, is_training_set = True, ds_t
   if dataset_title in TORCHVISION_CATERED_DATASETS['LSUN Bedrooms'][0]:
     config = get_current_configuration( 'config', raise_exception = False )
     if config is not None:
-      if config.res_dataset != 256:
+      if config.res_dataset > 256:
         message = f'WARNING: config.res_dataset currently set to {config.res_dataset},' + \
-                  f' but recommended to set --res_dataset to 256 when using LSUN Bedrooms!'
+                  f' but recommended to set --res_dataset to 256 or below when using LSUN Bedrooms!'
         raise RuntimeWarning( message )
     classes_categories = TORCHVISION_CATERED_DATASETS['LSUN Bedrooms'][1]
     classes = classes_categories[0] if is_training_set else classes_categories[1]
@@ -92,9 +92,9 @@ def make_torchvision_dataset( dataset, dataset_dir, is_training_set = True, ds_t
   elif dataset_title in TORCHVISION_CATERED_DATASETS['CIFAR-10'][0]:
     config = get_current_configuration( 'config', raise_exception = False )
     if config is not None:
-      if config.res_dataset != 32:
+      if config.res_dataset > 32:
         message = f'WARNING: config.res_dataset currently set to {config.res_dataset},' + \
-                  f' but recommended to set --res_dataset to 32 when using CIFAR-10!'
+                  f' but recommended to set --res_dataset to 32 or below when using CIFAR-10!'
         raise RuntimeWarning( message )
     classes_categories = TORCHVISION_CATERED_DATASETS['CIFAR-10'][1]
     classes = classes_categories[0] if is_training_set else classes_categories[1]
