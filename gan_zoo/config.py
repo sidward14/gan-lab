@@ -166,6 +166,10 @@ if __name__ == '__main__':
   parser.add_argument( '--save_samples_dir', type = Path, default = os.path.abspath( os.path.dirname( __file__ ) ) + '/samples/', \
     help = "root directory where all saved samples are stored (e.g. the image grid from the 'image grid' metric (see --gen_metrics above))" )
 
+  parser.add_argument( '--num_iters_save_model', type = int, default = 1000, help = "number of main iterations until model is saved again during training" )
+  parser.add_argument( '--save_model_dir', type = Path, default = os.path.abspath( os.path.dirname( __file__ ) ) + '/models/', \
+    help = "root directory where the model is saved by default, such as every config.num_iters_save_model iterations (see --num_iters_save_model above)" )
+
   parser.add_argument( '--num_workers', type = int, default = 0, \
     help = 'number of subprocesses to use for data loading; 0 will make data load in main process' )
   parser.add_argument( '--pin_memory', type = str2bool, nargs = '?', const = True, default = True if DEV == 'cuda' else False, \
@@ -369,6 +373,7 @@ if __name__ == '__main__':
                         " the group size for the minibatch standard deviation layer." )
 
   config.save_samples_dir.mkdir( parents = True, exist_ok = True )
+  config.save_model_dir.mkdir( parents = True, exist_ok = True )
 
   configs_dir = str( os.path.abspath( os.path.dirname( __file__ ) ) )
 

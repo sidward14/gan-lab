@@ -135,7 +135,7 @@ def concat_mbstd_layer( x, group_size = 4 ):
     mbstd_map = mbstd_map.expand( G, group_size, -1, -1, -1 )
     mbstd_map = mbstd_map.contiguous().view( ( -1, 1, _sz[2], _sz[3] ) )
   else:
-    mbstd_map = torch.zeros( _sz(0), 1, _sz(2), _sz(3), device = x.device )
+    mbstd_map = torch.zeros( _sz[0], 1, _sz[2], _sz[3], device = x.device )
 
   return torch.cat( ( x, mbstd_map, ), dim = 1 )
 

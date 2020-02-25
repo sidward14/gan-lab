@@ -683,6 +683,20 @@ class GANLearner( object ):
       if self.not_trained_yet:
         self.not_trained_yet = False
 
+      # Save model every self.config.num_iters_save_model iterations:
+      if ( itr + 1 ) % self.config.num_iters_save_model == 0:
+        self.gen_model.to( 'cpu' )
+        self.gen_model.eval()
+        self.disc_model.to( 'cpu' )
+        self.disc_model.eval()
+
+        self.save_model( self.config.save_model_dir/( self.model.casefold().replace( " ", "" ) + '_model.tar' ) )
+
+        self.gen_model.to( self.config.dev )
+        self.gen_model.train()
+        self.disc_model.to( self.config.dev )
+        self.disc_model.train()
+
     self.gen_model.to( 'cpu' )
     self.gen_model.eval()
     self.disc_model.to( 'cpu' )

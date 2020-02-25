@@ -218,7 +218,7 @@ class ProGANLearner( GANLearner ):
       #        "  please do so via altering your instantiated ProGANLearner().config's attributes." )
       print( '\n    Ready to train!\n' )
 
-  def apply_lagged_weights( self, m ):
+  def _apply_lagged_weights( self, m ):
     # TODO: Include support for other learnable layers such as BatchNorm
     _keys = m.state_dict().keys()
     if isinstance( m, ( nn.Linear, nn.Conv2d, LinearBias, Conv2dBias, ) ):
@@ -228,6 +228,16 @@ class ProGANLearner( GANLearner ):
       if 'bias' in _keys:
         m.bias = nn.Parameter( self.lagged_params.values()[ self._param_tensor_num ] )
         self._param_tensor_num += 1
+
+  @torch.no_grad()
+  def _update_gen_lagged( self ):
+    self.gen_model_lagged = copy.deepcopy( self.gen_model )  # for memory efficiency in GPU
+    self.gen_model_lagged.to( self.config.dev )
+    self.gen_model_lagged.train()
+    if self.beta:
+      self.gen_model_lagged.apply( self._apply_lagged_weights )
+      # print( f'{self._param_tensor_num} parameters in Generator.' )
+      self._param_tensor_num = 0
 
   # TODO: Implement:
   #         1.) 'ac loss' metric
@@ -254,13 +264,7 @@ class ProGANLearner( GANLearner ):
     if self.config.use_ewma_gen:
       if metrics_type == 'generator':
         self.gen_model.train()
-        self.gen_model_lagged = copy.deepcopy( self.gen_model )  # for memory efficiency in GPU
-        self.gen_model_lagged.to( self.config.dev )
-        self.gen_model_lagged.train()
-        if self.beta:
-          self.gen_model_lagged.apply( self.apply_lagged_weights )
-          # print( f'{self._param_tensor_num} parameters in Generator.' )
-          self._param_tensor_num = 0
+        self._update_gen_lagged( )
       self.gen_model_lagged.to( self.config.metrics_dev )
       self.gen_model_lagged.eval()
     self.gen_model.eval()
@@ -899,17 +903,39 @@ class ProGANLearner( GANLearner ):
       if self.not_trained_yet:
         self.not_trained_yet = False
 
+      # Save model every self.config.num_iters_save_model iterations:
+      if ( itr + 1 ) % self.config.num_iters_save_model == 0:
+        self._set_optimizer( )  # for niche case when training ends right when alpha becomes 1
+
+        # update time-averaged generator
+        with torch.no_grad():
+          self.gen_model.to( 'cpu' )
+          if self.config.use_ewma_gen:
+            self._update_gen_lagged( )
+            self.gen_model_lagged.to( 'cpu' )
+            self.gen_model_lagged.eval()
+
+        self.gen_model.eval()
+        self.disc_model.to( 'cpu' )
+        self.disc_model.eval()
+
+        self.save_model( self.config.save_model_dir/( self.model.casefold().replace( " ", "" ) + '_model.tar' ) )
+
+        self.gen_model.to( self.config.dev )
+        self.gen_model.train()
+        self.disc_model.to( self.config.dev )
+        self.disc_model.train()
+        if self.config.use_ewma_gen:
+          self.gen_model_lagged.to( self.config.metrics_dev )
+          self.gen_model_lagged.train()
+
     self._set_optimizer( )  # for niche case when training ends right when alpha becomes 1
 
+    # update time-averaged generator
     with torch.no_grad():
       self.gen_model.to( 'cpu' )
       if self.config.use_ewma_gen:
-        self.gen_model_lagged = copy.deepcopy( self.gen_model )  # for memory efficiency in GPU
-        self.gen_model_lagged.to( self.config.dev )
-        self.gen_model_lagged.train()
-        if self.beta:
-          self.gen_model_lagged.apply( self.apply_lagged_weights )
-          self._param_tensor_num = 0
+        self._update_gen_lagged( )
         self.gen_model_lagged.to( 'cpu' )
         self.gen_model_lagged.eval()
 

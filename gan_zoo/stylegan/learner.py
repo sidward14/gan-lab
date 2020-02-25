@@ -214,7 +214,7 @@ class StyleGANLearner( ProGANLearner ):
       #        "  please do so via altering your instantiated StyleGANLearner().config's attributes." )
       print( '\n    Ready to train!\n' )
 
-  def apply_lagged_weights( self, m ):
+  def _apply_lagged_weights( self, m ):
     # TODO: Include support for other learnable layers such as BatchNorm
     _keys = m.state_dict().keys()
     if isinstance( m, ( nn.Linear, nn.Conv2d, LinearBias, Conv2dBias, ) ):
