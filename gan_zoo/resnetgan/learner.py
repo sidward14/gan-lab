@@ -286,9 +286,8 @@ class GANLearner( object ):
 
     # Print configuration:
     if _model_selected:
-      print( '------------- Training Configuration ------------' )
-      for k, v in vars( config ).items():
-        print( f'  {k}: {v}' )
+      print( '-------- Initialized Model Configuration --------' )
+      print( self.config )
       print( '-------------------------------------------------' )
       # print( "  If you would like to alter any of the above configurations,\n" + \
       #        "  please do so via altering your instantiated GANLearner().config's attributes." )
@@ -993,6 +992,9 @@ class GANLearner( object ):
   # .......................................................................... #
 
   def save_model( self, save_path:Path ):
+    if self.not_trained_yet:
+      raise Exception( 'Please train your model for atleast 1 iteration before saving.' )
+
     if self.config.res_samples == 64:
       _fmap_g = FMAP_G; _fmap_d = FMAP_D
     elif self.config.res_samples == 32:
@@ -1151,3 +1153,10 @@ class GANLearner( object ):
 
 
     self.pretrained_model = True
+
+    # Print configuration:
+    print( '---------- Loaded Model Configuration -----------' )
+    print( self.config )
+    print( '-------------------------------------------------' )
+    print( "\n  If you would like to alter any of the above configurations,\n" + \
+           "  please do so via altering the attributes of your instantiated GANLearner().config object.\n" )

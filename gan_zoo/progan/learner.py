@@ -210,9 +210,8 @@ class ProGANLearner( GANLearner ):
 
     # Print configuration:
     if _model_selected:
-      print( '------------- Training Configuration ------------' )
-      for k, v in vars( config ).items():
-        print( f'  {k}: {v}' )
+      print( '-------- Initialized Model Configuration --------' )
+      print( self.config )
       print( '-------------------------------------------------' )
       # print( "  If you would like to alter any of the above configurations,\n" + \
       #        "  please do so via altering your instantiated ProGANLearner().config's attributes." )
@@ -1142,6 +1141,9 @@ class ProGANLearner( GANLearner ):
   # .......................................................................... #
 
   def save_model( self, save_path:Path ):
+    if self.not_trained_yet:
+      raise Exception( 'Please train your model for atleast 1 iteration before saving.' )
+
     self.gen_model_metadata = { 'gen_model_upsampler': self.gen_model_upsampler,
                                 'num_classes_gen': self.num_classes_gen }
     self.disc_model_metadata = { 'disc_model_downsampler': self.disc_model_downsampler,
@@ -1349,3 +1351,10 @@ class ProGANLearner( GANLearner ):
 
 
     self.pretrained_model = True
+
+    # Print configuration:
+    print( '---------- Loaded Model Configuration -----------' )
+    print( self.config )
+    print( '-------------------------------------------------' )
+    print( "\n  If you would like to alter any of the above configurations,\n" + \
+           "  please do so via altering the attributes of your instantiated ProGANLearner().config object.\n" )

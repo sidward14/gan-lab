@@ -139,3 +139,10 @@ class LearnerConfigCopy( object ):
       raise AttributeError( message )
     else:
       super( LearnerConfigCopy, self ).__setattr__( name, value )
+
+  def __str__( self ):
+    print_obj = ''
+    for k, v in vars( self ).items():
+      if k not in ( '_nonredefinable_attrs', '_redefinable_from_learner_attrs', 'model_name', 'learner_class', ):
+        print_obj += f'  {k}: {v}\n'
+    return print_obj[:-1]

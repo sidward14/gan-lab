@@ -29,12 +29,12 @@ class Lambda( nn.Module ):
     return self.func( x, **self.kwargs )
 
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ #
-# Blur:
-# -----
+# Blur (Low-pass Filtering):
+# --------------------------
 
 # TODO: Add More (such as Gaussian Blur)
 def get_blur_op( blur_type, num_channels ):
-  """Options for low-pass-filter blurring operations. Only 3x3 kernels supported currently."""
+  """Options for low-pass filter operations. Only 3x3 kernels supported currently."""
   if blur_type.casefold() == 'box':
     blur_filter = torch.FloatTensor( [ 1./9 ] ).expand( num_channels, 1, 3, 3 )
     stride = 3
@@ -140,7 +140,7 @@ def concat_mbstd_layer( x, group_size = 4 ):
   return torch.cat( ( x, mbstd_map, ), dim = 1 )
 
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ #
-# Bread-and-butter Linear Operations but with features such as
+# Bread-and-butter Linear Operations, but with features such as
 # equalized LR, custom initialization, etc:
 # ------------------------------------------------------------
 

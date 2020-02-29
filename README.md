@@ -33,6 +33,8 @@ __Clone this repo__, then simply run the following to configure your model & dat
   $ python data_config.py [dataset] [dataset_dir] [--optional_kwargs]
   $ python train.py
   ~~~
+The model will be saved into the "./gan_zoo/models" directory by default.
+
 If you would like to see a list of what each argument does, run '$ python config.py [model] -h' or '$ python data_config.py [dataset] [dataset_dir] -h' on the command-line.
 
 __NOTE__: Make sure that all images you would like to use in your model are located directly inside the _dataset_dir_ parent directory before running [data_config.py](./gan_zoo/data_config.py). Any images within subdirectories of _dataset_dir_ (except for the subdirectories named "train" or "valid" that get created when you run [data_config.py](./gan_zoo/data_config.py)) will not be used when training your model.
@@ -109,11 +111,18 @@ Running [train.py](./gan_zoo/train.py) is just the very basic usage. This packag
   learner.train( train_dl, valid_dl, z_valid_dl )   # train for config.num_main_iters iterations
   learner.config.num_main_iters = 300000            # this is one example of changing your instantiated learner's configurations
   learner.train( train_dl, valid_dl, z_valid_dl )   # train for another 300000 iterations
+
+  # save your trained model:
+  learner.save_model( 'path/to/models/stylegan_model.tar' )
+
+  # later on, you can load this saved model by instantiating the same learner and then running load_model:
+  # learner = StyleGANLearner( config )
+  # learner.load_model( 'path/to/models/stylegan_model.tar' )
   ```
 
 __Some Advantages of Jupyter Notebook (there are many more than this)__:
 + You have the flexibility to think about what to do with your trained model after its trained rather than all at once, such as:
-  + whether you want to save/load your trained model/learner
+  + whether you want to save/load your trained model
   + what learner.config parameters you want to change before training again
 + You can always stop the kernel during training, do something else, and then resume again and it will work
 
