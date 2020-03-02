@@ -1,6 +1,6 @@
-# GAN Zoo
+# GAN Lab
 
-<img align="center" src="https://github.com/sidward14/gan-zoo/raw/master/examples/for_readme/stylegan/stylemixed-grid_sample.png" height="696" width="900"/>
+<img align="center" src="https://github.com/sidward14/gan-lab/raw/master/examples/for_readme/stylegan/stylemixed-grid_sample.png" height="696" width="900"/>
 
 ### _Higher resolutions coming once model finishes training in Google Colab with 16 GB GPU Memory (the above are 128x128 res images from a StyleGAN trained in a 6 GB GPU)_
 
@@ -9,9 +9,9 @@ __Currently supports:__
 + ProGAN (https://arxiv.org/pdf/1710.10196.pdf)
 + ResNet GANs
 
-Each GAN model's default settings emulates its most recent official implementation, but at the same time this package features a simple interface ([config.py](./gan_zoo/config.py)) where the user can quickly tune an extensive list of hyperparameter settings to his/her choosing.
+Each GAN model's default settings emulates its most recent official implementation, but at the same time this package features a simple interface ([config.py](./gan_lab/config.py)) where the user can quickly tune an extensive list of hyperparameter settings to his/her choosing.
 
-Comes with additional features such as supervised learning capabilities, flexible learning rate scheduling (and re-scheduling) capabilities, an easy-to-use interface for saving/loading the model/learner state (e.g. for transfer learning or for evaluation at a later time), etc.
+Comes with additional features such as supervised learning capabilities, an easy-to-use interface for saving/loading pretrained models, flexible learning rate scheduling (and re-scheduling) capabilities, etc.
 
 This package aims for an intuitive API without sacrificing any complexity anywhere.
 
@@ -19,11 +19,11 @@ This package aims for an intuitive API without sacrificing any complexity anywhe
 
 In your virtual environment (e.g. a conda virtual environment), run:
   ~~~
-  $ pip install gan-zoo
+  $ pip install gan-lab
   ~~~
 This will install all necessary dependencies for you and will enable the option to use the package like an API (see "Jupyter Notebook (or Custom Script) Usage" below).
 
-If you do not wish to use the package like an API (i.e. you just want to install dependencies and then just use the repo by means of running [train.py](./gan_zoo/train.py), like shown below in the "Basic Usage on Command-line" section), you can run '$ pip install -r requirements.txt' instead.
+If you do not wish to use the package like an API (i.e. you just want to install dependencies and then just use the repo by means of running [train.py](./gan_lab/train.py), like shown below in the "Basic Usage on Command-line" section), you can run '$ pip install -r requirements.txt' instead.
 
 ## Basic Usage on Command-line
 
@@ -33,11 +33,11 @@ __Clone this repo__, then simply run the following to configure your model & dat
   $ python data_config.py [dataset] [dataset_dir] [--optional_kwargs]
   $ python train.py
   ~~~
-The model will be saved into the "./gan_zoo/models" directory by default.
+The model will be saved into the "./gan_lab/models" directory by default.
 
 If you would like to see a list of what each argument does, run '$ python config.py [model] -h' or '$ python data_config.py [dataset] [dataset_dir] -h' on the command-line.
 
-__NOTE__: Make sure that all images you would like to use in your model are located directly inside the _dataset_dir_ parent directory before running [data_config.py](./gan_zoo/data_config.py). Any images within subdirectories of _dataset_dir_ (except for the subdirectories named "train" or "valid" that get created when you run [data_config.py](./gan_zoo/data_config.py)) will not be used when training your model.
+__NOTE__: Make sure that all images you would like to use in your model are located directly inside the _dataset_dir_ parent directory before running [data_config.py](./gan_lab/data_config.py). Any images within subdirectories of _dataset_dir_ (except for the subdirectories named "train" or "valid" that get created when you run [data_config.py](./gan_lab/data_config.py)) will not be used when training your model.
 
 ### StyleGAN Example:
 
@@ -49,10 +49,10 @@ A StyleGAN Generator that yields 128x128 images _(higher resolutions coming once
   ~~~
 
   <p align="center">
-  <img align="center" src="https://github.com/sidward14/gan-zoo/raw/master/examples/for_readme/stylegan/stylegan_image-grid_growth.gif" width="500" height="500"/>
+  <img align="center" src="https://github.com/sidward14/gan-lab/raw/master/examples/for_readme/stylegan/stylegan_image-grid_growth.gif" width="500" height="500"/>
   </p>
 
-By default, image grids like the ones above are saved periodically during training into the "./gan_zoo/samples" directory every 1,000 iterations (see [config.py](./gan_zoo/config.py)).
+By default, image grids like the ones above are saved periodically during training into the "./gan_lab/samples" directory every 1,000 iterations (see [config.py](./gan_lab/config.py)).
 
 ### ProGAN Example:
 
@@ -64,10 +64,10 @@ A ProGAN Generator that yields 128x128 images _(higher resolutions coming once m
   ~~~
 
   <p align="center">
-  <img align="center" src="https://github.com/sidward14/gan-zoo/raw/master/examples/for_readme/progan/image_grids.gif" width="500" height="500"/>
+  <img align="center" src="https://github.com/sidward14/gan-lab/raw/master/examples/for_readme/progan/image_grids.gif" width="500" height="500"/>
   </p>
 
-By default, image grids of generator output are saved periodically during training into the "./gan_zoo/samples" directory every 1,000 iterations (see [config.py](./gan_zoo/config.py)).
+By default, image grids of generator output are saved periodically during training into the "./gan_lab/samples" directory every 1,000 iterations (see [config.py](./gan_lab/config.py)).
 
 ### ResNet GAN Example:
 
@@ -84,7 +84,7 @@ A ResNet GAN Generator can be created by running the following 3 lines (for exam
 
 ## Jupyter Notebook (or Custom Script) Usage
 
-Running [train.py](./gan_zoo/train.py) is just the very basic usage. This package can be imported and utilized in a modular manner as well (like an API). For example, often it's helpful to experiment inside a Jupyter Notebook, like in the example workflow below.
+Running [train.py](./gan_lab/train.py) is just the very basic usage. This package can be imported and utilized in a modular manner as well (like an API). For example, often it's helpful to experiment inside a Jupyter Notebook, like in the example workflow below.
 
   First, configure your GAN to your choosing on the command-line (like explained above under the "Basic Usage on Command-line" section):
   ~~~
@@ -94,9 +94,9 @@ Running [train.py](./gan_zoo/train.py) is just the very basic usage. This packag
 
   Then, write a custom script or Jupyter Notebook cells:
   ```python
-  from gan_zoo import get_current_configuration
-  from gan_zoo.utils.data_utils import prepare_dataset, prepare_dataloader
-  from gan_zoo.stylegan.learner import StyleGANLearner
+  from gan_lab import get_current_configuration
+  from gan_lab.utils.data_utils import prepare_dataset, prepare_dataloader
+  from gan_lab.stylegan.learner import StyleGANLearner
 
   # get most recent configurations:
   config = get_current_configuration( 'config' )
@@ -128,7 +128,7 @@ __Some Advantages of Jupyter Notebook (there are many more than this)__:
 
 --------------------------------------------------------------------------------
 
-__NOTE__ that by default, the _--num_workers_ argument in [config.py](./gan_zoo/config.py) is set to data-loading from just 1 subprocess; setting this to a larger number (that still falls within the constraints of your CPU(s)) will speed up training significantly. :slightly_smiling_face:
+__NOTE__ that by default, the _--num_workers_ argument in [config.py](./gan_lab/config.py) is set to data-loading from just 1 subprocess; setting this to a larger number (that still falls within the constraints of your CPU(s)) will speed up training significantly. :slightly_smiling_face:
 
 ## TODO (will be implemented soon):
 - [ ] Multi-GPU support
@@ -136,3 +136,4 @@ __NOTE__ that by default, the _--num_workers_ argument in [config.py](./gan_zoo/
 - [ ] FID, IS, and MS-SSIM metrics calculation
 - [ ] Incorporate Spectral Normalization
 - [ ] Incorporate Self-attention
+- [ ] TorchScript capabilities

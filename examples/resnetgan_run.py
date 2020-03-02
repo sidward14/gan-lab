@@ -6,9 +6,9 @@
 #       '$ python config.py resnetgan [--optional_kwargs]'
 #       before running this script.
 
-from gan_zoo import get_current_configuration
-from gan_zoo.utils.data_utils import prepare_dataset, prepare_dataloader
-from gan_zoo.resnetgan.learner import GANLearner
+from gan_lab import get_current_configuration
+from gan_lab.utils.data_utils import prepare_dataset, prepare_dataloader
+from gan_lab.resnetgan.learner import GANLearner
 
 #++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++#
 

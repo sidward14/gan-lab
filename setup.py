@@ -13,21 +13,21 @@ def readme( ):
     return f.read( )
 
 setup(
-  name = 'gan-zoo',
-  version = '0.2.2',
+  name = 'gan-lab',
+  version = '0.2.3',
   author = 'Sidhartha Parhi',
   author_email = 'sidhartha.parhi@gmail.com',
-  description = "StyleGAN, ProGAN, and ResNet GANs",
+  description = "StyleGAN, ProGAN, and ResNet GANs to experiment with",
   long_description = readme( ),
   long_description_content_type = 'text/markdown',
   keywords = 'GAN GAN-Zoo ML generative neural model',
-  url = "https://github.com/sidward14/gan-zoo",
+  url = "https://github.com/sidward14/gan-lab",
   packages = [
-    'gan_zoo',
-    'gan_zoo.utils',
-    'gan_zoo.resnetgan',
-    'gan_zoo.progan',
-    'gan_zoo.stylegan',
+    'gan_lab',
+    'gan_lab.utils',
+    'gan_lab.resnetgan',
+    'gan_lab.progan',
+    'gan_lab.stylegan',
   ],
   dependency_links = [ ],
   install_requires = [

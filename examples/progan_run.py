@@ -6,9 +6,9 @@
 #       '$ python config.py progan [--optional_kwargs]'
 #       before running this script.
 
-from gan_zoo import get_current_configuration
-from gan_zoo.utils.data_utils import prepare_dataset, prepare_dataloader
-from gan_zoo.progan.learner import ProGANLearner
+from gan_lab import get_current_configuration
+from gan_lab.utils.data_utils import prepare_dataset, prepare_dataloader
+from gan_lab.progan.learner import ProGANLearner
 
 #++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++#
 
