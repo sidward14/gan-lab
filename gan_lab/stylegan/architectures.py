@@ -59,7 +59,7 @@ class StyleMappingNetwork( nn.Module ):
     return self.fc_mapping_model( self.preprocess_z( x ) )
 
 # TODO: This embedding approach seems to not be any more complex than simply class-conditioning the generator like you do with all the rest...check this
-class StyleConditionedMappingNetwork( StyleMappingNetwork ):
+class StyleConditionedMappingNetwork( nn.Module ):
   """Class-conditioned version of Mapping Network for StyleGAN architecture."""
   def __init__( self,
                 num_classes,
@@ -69,30 +69,37 @@ class StyleConditionedMappingNetwork( StyleMappingNetwork ):
                 lrmul = .01,
                 nl = nn.LeakyReLU( negative_slope = .2 ),
                 equalized_lr = True,
-                normalize_z = True ):
-    super( StyleConditionedMappingNetwork, self ).__init__( len_latent, len_dlatent, num_fcs,
-                                                            lrmul, nl, equalized_lr, normalize_z )
+                normalize_z = True,
+                embed_cond_vars = True ):
+    super( StyleConditionedMappingNetwork, self ).__init__()
 
+    self.len_latent = len_latent
     self.num_classes = num_classes
 
-    self.preprocess_classes = Lambda( lambda x: x.view( -1, num_classes ) )
+    self.embed_cond_vars = embed_cond_vars
+    if embed_cond_vars:
+      self.class_embedding = LinearEx( nin_feat = num_classes, nout_feat = len_latent,
+                                       init = None, init_type = 'Standard Normal', include_bias = False )
 
-    self.class_embedding = LinearEx( nin_feat = num_classes, nout_feat = len_latent,
-                                     init = None, init_type = 'Standard Normal', include_bias = False )
-
-    fc_mapping_model = nn.Sequential( )
-    fc_mapping_model.add_module(
-      'fc_0',
-      LinearEx( nin_feat = len_latent + num_classes, nout_feat = self.dims[1],
-                init = 'He', init_type = 'StyleGAN', gain_sq_base = 2.,
-                equalized_lr = equalized_lr, lrmul = lrmul )
-    )
-    self.fc_mapping_model = nn.Sequential( *( list( fc_mapping_model ) + list( self.fc_mapping_model )[ 1: ] ) )
+    self.dims = np.linspace( len_latent, len_dlatent, num_fcs ).astype( np.int64 )
+    self.dims = np.insert( self.dims, 0, 2*len_latent if self.embed_cond_vars else len_latent + num_classes )
+    self.fc_mapping_model = nn.Sequential( )
+    if normalize_z:
+      self.fc_mapping_model.add_module( 'pixelnorm', NormalizeLayer( 'PixelNorm' ) )
+    for seq_n in range( num_fcs ):
+      self.fc_mapping_model.add_module(
+        'fc_' + str( seq_n ),
+        LinearEx( nin_feat = self.dims[seq_n], nout_feat = self.dims[seq_n+1],
+                  init = 'He', init_type = 'StyleGAN', gain_sq_base = 2.,
+                  equalized_lr = equalized_lr, lrmul = lrmul )
+      )
+      self.fc_mapping_model.add_module( 'nl_' + str( seq_n ), nl )
 
   def forward( self, x, y ):
-    return self.fc_mapping_model( torch.cat( ( self.preprocess_z( x ),
-                                               self.class_embedding( self.preprocess_classes( y ) ),
-                                             ), dim = 1 ) )
+    y = y.view( -1, self.num_classes )
+    if self.embed_cond_vars:
+      y = self.class_embedding( y )
+    return self.fc_mapping_model( torch.cat( ( x.view( -1, self.len_latent ), y, ), dim = 1 ) )
 
 class StyleAddNoise( nn.Module ):
   """Simple `nn.Module` that adds weighted uncorrelated Gaussian noise to a layer of feature maps."""
@@ -402,6 +409,7 @@ class StyleGenerator( StyleGAN ):
 
   def forward( self, x, x_mixing = None, style_mixing_stage:int = None, noise = None ):
     # TODO: Implement the ability to style-mix more than just 2 styles in eval mode
+    # TODO: Implement the ability to input the disentangled latent variable w directly
 
     cutoff_idx = None
     # Training Mode Only:
