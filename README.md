@@ -130,7 +130,7 @@ __Some Advantages of Jupyter Notebook (there are many more than this)__:
 
 __NOTE__ that by default, the _--num_workers_ argument in [config.py](./gan_lab/config.py) is set to data-loading from just 1 subprocess; setting this to a larger number (that still falls within the constraints of your CPU(s)) will speed up training significantly. :slightly_smiling_face:
 
-## TODO (will be implemented soon):
+## TODO:
 - [ ] Multi-GPU support
 - [ ] TensorBoard capabilities
 - [ ] FID, IS, and MS-SSIM metrics calculation
