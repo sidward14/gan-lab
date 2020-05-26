@@ -58,7 +58,7 @@ class StyleMappingNetwork( nn.Module ):
   def forward( self, x ):
     return self.fc_mapping_model( self.preprocess_z( x ) )
 
-# TODO: This embedding approach seems to not be any more complex than simply class-conditioning the generator like you do with all the rest...check this
+
 class StyleConditionedMappingNetwork( nn.Module ):
   """Class-conditioned version of Mapping Network for StyleGAN architecture."""
   def __init__( self,
