@@ -333,8 +333,7 @@ class ProGANLearner( GANLearner ):
                 save_ewma_img_grid_dir = \
                   self.config.save_samples_dir/self.model.casefold().replace( " ", "" )/self.data_config.dataset/'image_grid'/'time_averaged'
                 save_ewma_img_grid_dir.mkdir( parents = True, exist_ok = True )
-                fig.savefig( save_ewma_img_grid_dir/( str( self.gen_metrics_num ) + '.png' ),
-                             bbox_inches = 'tight', pad_inches = 0 )
+                fig.savefig( save_ewma_img_grid_dir/( str( self.gen_metrics_num ) + '.png' ), pad_inches = 0 )
                 # plt.show( )
 
                 # print( 'ORIGINAL SNAPSHOT GENERATOR OUTPUT:\n--------------------------' )
@@ -342,8 +341,7 @@ class ProGANLearner( GANLearner ):
               save_original_img_grid_dir = \
                 self.config.save_samples_dir/self.model.casefold().replace( " ", "" )/self.data_config.dataset/'image_grid'/'original'
               save_original_img_grid_dir.mkdir( parents = True, exist_ok = True )
-              fig.savefig( save_original_img_grid_dir/( str( self.gen_metrics_num ) + '.png' ),
-                           bbox_inches = 'tight', pad_inches = 0 )
+              fig.savefig( save_original_img_grid_dir/( str( self.gen_metrics_num ) + '.png' ), pad_inches = 0 )
               # plt.show( )
 
               self._img_grid_constructed = True
@@ -963,14 +961,16 @@ class ProGANLearner( GANLearner ):
     self.scheduler_disc = \
       torch.optim.lr_scheduler.LambdaLR( self.opt_disc, self.scheduler_fn, last_epoch = -1 )
 
-    self._scheduler_gen_state_dict = self.scheduler_gen.state_dict()
-    self._scheduler_disc_state_dict = self.scheduler_disc.state_dict()
-    if self.pretrained_model and not self._sched_state_dict_set:
-      self.scheduler_gen.load_state_dict( self._scheduler_gen_state_dict )
-      self.scheduler_disc.load_state_dict( self._scheduler_disc_state_dict )
+    with warnings.catch_warnings():
+      warnings.simplefilter( 'ignore', UserWarning )
       self._scheduler_gen_state_dict = self.scheduler_gen.state_dict()
       self._scheduler_disc_state_dict = self.scheduler_disc.state_dict()
-      self._sched_state_dict_set = True
+      if self.pretrained_model and not self._sched_state_dict_set:
+        self.scheduler_gen.load_state_dict( self._scheduler_gen_state_dict )
+        self.scheduler_disc.load_state_dict( self._scheduler_disc_state_dict )
+        self._scheduler_gen_state_dict = self.scheduler_gen.state_dict()
+        self._scheduler_disc_state_dict = self.scheduler_disc.state_dict()
+        self._sched_state_dict_set = True
 
   def _set_optimizer( self ):
     if self._optimizer == 'adam':

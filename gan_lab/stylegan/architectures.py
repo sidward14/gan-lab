@@ -101,6 +101,7 @@ class StyleConditionedMappingNetwork( nn.Module ):
       y = self.class_embedding( y )
     return self.fc_mapping_model( torch.cat( ( x.view( -1, self.len_latent ), y, ), dim = 1 ) )
 
+
 class StyleAddNoise( nn.Module ):
   """Simple `nn.Module` that adds weighted uncorrelated Gaussian noise to a layer of feature maps."""
   def __init__( self, nf ):
