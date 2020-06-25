@@ -1,8 +1,10 @@
 # GAN Lab
 
+# _UPDATE: A recent fix related to a recent change to the name of one of gan-lab's dependencies that broke the package has been implemented. Please re-install and/or re-clone and run requirement.txt to make these changes take place._
+
 <img align="center" src="https://github.com/sidward14/gan-lab/raw/master/examples/for_readme/stylegan/stylemixed-grid_sample.png" height="696" width="900"/>
 
-### _Higher resolutions coming in early-June (the above are 128x128 res images from a StyleGAN trained in a 6 GB GPU)_
+### _Higher resolutions coming in early-August (the above are 128x128 res images from a StyleGAN trained in a 6 GB GPU)_
 
 __Currently supports:__
 + StyleGAN (https://arxiv.org/pdf/1812.04948.pdf)
