@@ -1,6 +1,6 @@
 # GAN Lab
 
-# _UPDATE: A recent fix related to a recent change to the name of one of gan-lab's dependencies that broke the package has been implemented. Please re-install and/or re-clone and run requirement.txt to make these changes take place._
+# _UPDATE: Recently implemented a fix related to a recent change to the name of one of gan-lab's dependencies that broke the package. Please re-install and/or re-clone and run requirements.txt to make these changes take place._
 
 <img align="center" src="https://github.com/sidward14/gan-lab/raw/master/examples/for_readme/stylegan/stylemixed-grid_sample.png" height="696" width="900"/>
 
