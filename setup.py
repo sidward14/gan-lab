@@ -14,7 +14,7 @@ def readme( ):
 
 setup(
   name = 'gan-lab',
-  version = '0.3.0',
+  version = '0.4.0',
   author = 'Sidhartha Parhi',
   author_email = 'sidhartha.parhi@gmail.com',
   description = "StyleGAN, ProGAN, and ResNet GANs to experiment with",
@@ -32,12 +32,14 @@ setup(
   dependency_links = [ ],
   install_requires = [
     'numpy >= 1.17.2',
+    'scipy',
     'pillow >= 6.2.0',
     'matplotlib >= 3.1.1',
     'indexed >= 1.1.0',
     'torch >= 1.3.0',
     'torchvision >= 0.4.1',
     'lmdb >= 0.97',
+    'tqdm',
   ],
   python_requires = '>= 3.6',
   include_package_data = True,

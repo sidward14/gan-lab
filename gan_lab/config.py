@@ -183,7 +183,7 @@ if __name__ == '__main__':
 
     parser.add_argument( '--num_main_iters', type = int, default = 300000, help = 'number of main iterations of training generator and discriminator' )
     parser.add_argument( '--num_disc_iters', type = int, default = 5, \
-      help = "number of discriminator iterations in one main iteration through generator and discriminator;" + \
+      help = "number of discriminator iterations in one main iteration through generator and discriminator, each of these is 1 batch;" + \
              " suggested to train to optimality so that minimizing generator's loss is the same as minimizing the JS-divergence for many types of loss functions" )
 
     parser.add_argument( '--lr_base', type = float, default = .0001, help = 'base (max) learning rate; can vary depending on dataset and model' )
@@ -223,7 +223,7 @@ if __name__ == '__main__':
              ' change these based on the memory-requirements of your device; higher resolutions than 1024 are also supported' )
 
     parser.add_argument( '--num_disc_iters', type = int, default = 1, \
-      help = "number of discriminator iterations in one main iteration through generator and discriminator;" + \
+      help = "number of discriminator iterations in one main iteration through generator and discriminator, each of these is 1 batch;" + \
              " no need to train discriminator to optimality here (for faster convergence)" )
     parser.add_argument( '--nimg_transition', type = int, default = NIMG_TRANSITION, \
       help = 'number of real images seen by discriminator before transitioning to next fade-in/stabilization phase' )

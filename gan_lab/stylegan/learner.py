@@ -44,9 +44,12 @@ from utils.latent_utils import gen_rand_latent_vars
 from utils.backprop_utils import calc_gp, configure_adam_for_gan
 from utils.custom_layers import Conv2dBias, LinearBias
 
+import os
+import sys
 from abc import ABC
 import copy
 import logging
+import warnings
 from pathlib import Path
 from functools import partial
 from itertools import accumulate
@@ -301,7 +304,7 @@ class StyleGANLearner( ProGANLearner ):
     plt.show()
 
   @torch.no_grad()
-  def make_stylemixing_grid( self, zs_sourceb, zs_coarse = [], zs_middle = [], zs_fine = [], labels = None, time_average = True ):
+  def make_stylemixing_grid( self, zs_sourceb, zs_coarse = [], zs_middle = [], zs_fine = [], labels = None, time_average = True, save_path = None ):
     """Generates style-mixed grid of images, emulating Figure 3 in Karras et al. 2019."""
     assert any( len( zs ) for zs in ( zs_coarse, zs_middle, zs_fine, ) )
     if self.ds_mean is None or self.ds_std is None:
@@ -367,7 +370,7 @@ class StyleGANLearner( ProGANLearner ):
             if not row and not col:
               axs[row][col].set_position( [ l - gaps[0], b + gaps[1], w, h ] )
             else:
-              if ( not row ) != ( not col ):  # xor
+              if ( not row ) != ( not col ):
                 if row:
                   axs[row][col].set_position( [ l - gaps[0], b, w, h ] )
                   if row == 1:
@@ -417,6 +420,12 @@ class StyleGANLearner( ProGANLearner ):
         fig.text( l - gaps[0], b + center_y, ylabel, va = 'center', rotation = 'vertical' )
     logger.setLevel( _old_level )
 
+    # maintain resolution of images and save
+    if save_path is not None:
+      bbox = axs[-1][-1].get_window_extent().transformed( fig.dpi_scale_trans.inverted() )
+      dpi = ( self.gen_model_lagged.curr_res if time_average else self.gen_model.curr_res ) / bbox.height
+      fig.savefig( save_path, dpi = dpi, bbox_inches = 'tight', pad_inches = 0 )
+      
     return ( fig, axs, )
 
   # .......................................................................... #
@@ -424,6 +433,8 @@ class StyleGANLearner( ProGANLearner ):
   def save_model( self, save_path:Path ):
     if self.not_trained_yet:
       raise Exception( 'Please train your model for atleast 1 iteration before saving.' )
+
+    warnings.filterwarnings( 'ignore', category = UserWarning )
 
     self.gen_model_metadata = { 'gen_model_upsampler': self.gen_model_upsampler,
                                 'num_classes_gen': self.num_classes_gen }
@@ -467,7 +478,7 @@ class StyleGANLearner( ProGANLearner ):
                 'batch_size': self.batch_size,
                 'curr_dataset_batch_num': self.curr_dataset_batch_num,
                 'curr_epoch_num': self.curr_epoch_num,
-                'curr_valid_num': self.curr_valid_num,
+                'tot_num_epochs': self.tot_num_epochs,
                 'dataset_sz': self.dataset_sz,
                 'ac': self.ac,
                 'cond_gen': self.cond_gen,
@@ -618,7 +629,7 @@ class StyleGANLearner( ProGANLearner ):
 
     self.curr_dataset_batch_num = checkpoint['curr_dataset_batch_num']
     self.curr_epoch_num = checkpoint['curr_epoch_num']
-    self.curr_valid_num = checkpoint['curr_valid_num']
+    self.tot_num_epochs = checkpoint['tot_num_epochs']
     self.dataset_sz = checkpoint['dataset_sz']
 
     self.ac = checkpoint['ac']

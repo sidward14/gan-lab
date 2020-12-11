@@ -27,7 +27,8 @@ from pathlib import Path
 
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ #
 
-SAVE_MODEL_PATH = './models/gan_model.tar'
+CHECKPOINT_PATH = './models/stylegan_model.tar'
+LOAD_MODEL = False
 
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ #
 
@@ -54,10 +55,15 @@ if __name__ == '__main__':
     raise ValueError( 'Invalid config.model. The GAN Lab currently only' + \
                       ' supports ResNet GAN, Progressive GAN, or StyleGAN.' )
 
+  # Load model:
+  # -----------
+  if LOAD_MODEL:
+    learner.load_model( CHECKPOINT_PATH )
+
   # Train for config.num_main_iters iterations:
   # -------------------------------------------
   learner.train( train_dl, valid_dl, z_valid_dl )
 
-  # Save Model:
-  # -----------
-  learner.save_model( SAVE_MODEL_PATH )
+  # Save final model:
+  # -----------------
+  learner.save_model( CHECKPOINT_PATH )

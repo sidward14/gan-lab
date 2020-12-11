@@ -43,6 +43,8 @@ from utils.latent_utils import gen_rand_latent_vars
 from utils.backprop_utils import calc_gp, configure_adam_for_gan
 from utils.custom_layers import Conv2dBias, LinearBias
 
+import os
+import sys
 from abc import ABC
 import copy
 import logging
@@ -61,7 +63,8 @@ from torch import nn
 import torch.nn.functional as F
 from torchvision import transforms
 
-# from tqdm import tqdm
+from tqdm import tqdm
+from tqdm.autonotebook import tqdm as tqdma
 
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ #
 
@@ -287,6 +290,7 @@ class ProGANLearner( GANLearner ):
                                  device = self.config.metrics_dev, dtype = torch.float32 ) for metric in metrics }
 
     if z_valid_dl is not None:
+      pbarv = tqdma( total = _len_z_valid_ds, unit = ' imgs', dynamic_ncols = True )
       for n in range( _len_z_valid_dl ):
         # Uncomment the below if validation set is taking up too much memory
         # zb = gen_rand_latent_vars( num_samples = self.batch_size, length = LEN_Z, distribution = 'normal', device = self.config.dev )
@@ -329,19 +333,19 @@ class ProGANLearner( GANLearner ):
             if self.grid_inputs_constructed and not self._img_grid_constructed:
               if self.config.use_ewma_gen:
                 # print( 'TIME-AVERAGED GENERATOR OUTPUT:\n------------------------' )
-                fig, _ = self.make_image_grid( zs = self.valid_z, labels = self.valid_label, time_average = True )
                 save_ewma_img_grid_dir = \
                   self.config.save_samples_dir/self.model.casefold().replace( " ", "" )/self.data_config.dataset/'image_grid'/'time_averaged'
                 save_ewma_img_grid_dir.mkdir( parents = True, exist_ok = True )
-                fig.savefig( save_ewma_img_grid_dir/( str( self.gen_metrics_num ) + '.png' ), pad_inches = 0 )
+                fig, _ = self.make_image_grid( zs = self.valid_z, labels = self.valid_label, time_average = True,
+                                               save_path = str( save_ewma_img_grid_dir/( str( self.gen_metrics_num ) + '.png' ) ) )
                 # plt.show( )
 
                 # print( 'ORIGINAL SNAPSHOT GENERATOR OUTPUT:\n--------------------------' )
-              fig, _ = self.make_image_grid( zs = self.valid_z, labels = self.valid_label, time_average = False )
               save_original_img_grid_dir = \
                 self.config.save_samples_dir/self.model.casefold().replace( " ", "" )/self.data_config.dataset/'image_grid'/'original'
               save_original_img_grid_dir.mkdir( parents = True, exist_ok = True )
-              fig.savefig( save_original_img_grid_dir/( str( self.gen_metrics_num ) + '.png' ), pad_inches = 0 )
+              fig, _ = self.make_image_grid( zs = self.valid_z, labels = self.valid_label, time_average = False,
+                                             save_path = str( save_original_img_grid_dir/( str( self.gen_metrics_num ) + '.png' ) ) )
               # plt.show( )
 
               self._img_grid_constructed = True
@@ -393,11 +397,15 @@ class ProGANLearner( GANLearner ):
               # if self.gradient_penalty is not None:
               #   metrics_tensors['generator loss'][:len(zb), n] += self.gp_func( _xgenb, xb )
           self.disc_metrics_num += 1 if n == ( _len_z_valid_dl - 1 ) else 0
+        pbarv.set_description( ' Img' )
+        pbarv.update( _len_zb )
+    pbarv.close()
     metrics_vals = [
       ( vals_tensor.sum() / _len_z_valid_ds ).item() \
       for vals_tensor in metrics_tensors.values()
     ]
-    metrics_vals = [ f'{metric}:{metrics_vals[n]}' for n, metric in enumerate( metrics ) if metric != 'image grid' ]
+    _max_len = '%-' + str( max( [ len( s ) for s in metrics ] ) + 3 ) + 's'
+    metrics_vals = [ '    ' + ( _max_len % ( metric + ':' ) ) + '%.4g' % metrics_vals[n] + '\n' for n, metric in enumerate( metrics ) if metric != 'image grid' ]
 
     self.gen_model.to( self.config.dev )
     self.disc_model.to( self.config.dev )
@@ -474,10 +482,10 @@ class ProGANLearner( GANLearner ):
 
     # Allows one to start from where they left off:
     if self.not_trained_yet:
-      print( 'STARTING FROM ITERATION 0:' )
+      print( 'STARTING FROM ITERATION 0:\n' )
       self.train_dataiter = iter( train_dl )
     else:
-      print( 'CONTINUING FROM WHERE YOU LEFT OFF:' )
+      print( 'CONTINUING FROM WHERE YOU LEFT OFF:\n' )
       if self.pretrained_model:
         train_dl.batch_sampler.batch_size = self.batch_size
         train_dl.dataset.transforms.transform.transforms = \
@@ -511,420 +519,501 @@ class ProGANLearner( GANLearner ):
 
       self.delta_alpha = self.batch_size / ( ( self.nimg_transition / num_disc_iters ) - self.batch_size )
 
+    if self.tot_num_epochs is None:
+      _tmpd1 = self.nimg_transition // self.config.bs_dict[ self.config.init_res ]
+      _tmpd20 = { k:v for k,v in self.config.bs_dict.items() if self.config.init_res < k < self.config.res_samples }
+      _tmpd20 = np.unique( np.array( list( _tmpd20.values() ) ), return_counts = True )
+      _tmpd2 = ( self.nimg_transition // _tmpd20[0] ) * 2 * _tmpd20[1]
+      _tmpd3 = num_main_iters - ( _tmpd1 + _tmpd2.sum() )
+      self.tot_num_epochs = _tmpd1*self.config.bs_dict[ self.config.init_res ] + ( _tmpd2*_tmpd20[0] ).sum() + _tmpd3*self.config.bs_dict[ self.config.res_samples ]
+      self.tot_num_epochs *= num_disc_iters
+      self.tot_num_epochs //= self.dataset_sz // self.batch_size * self.batch_size
+      self.tot_num_epochs += 1
+
+    pbar = tqdm( total = self.dataset_sz // self.batch_size * self.batch_size, unit = ' imgs' )
+
     # ------------------------------------------------------------------------ #
 
-    # for itr in tqdm( range( num_main_iters ) ):
-    for itr in range( num_main_iters ):
-      print( 'ITERATION #', itr )
+    try:
 
-      # these are set to `False` for the Generator because you don't need
-      # the Discriminator's parameters' gradients when chain-ruling back to the generator
-      for p in self.disc_model.parameters(): p.requires_grad_( True )
+      for itr in range( num_main_iters ):
 
-      if self.sched_bool:
-        with warnings.catch_warnings():
-          warnings.simplefilter( 'ignore' )
-          print( f'Generator LR: {self.scheduler_gen.get_lr()} |', \
-                 f'Discriminator LR: {self.scheduler_disc.get_lr()}'
-          )
-
-      # Determine whether it is time to switch to next fade-in/stabilization phase:
-      if self.gen_model.curr_res < self.gen_model.final_res:
-        if self.curr_img_num == sum( self.nimg_transition_lst ):
-          self.curr_phase_num += 1
-          if self.curr_phase_num % 2 == 1:
-            _prev_res = self.gen_model.curr_res
-
-            self.gen_model.zero_grad()
-            self.disc_model.zero_grad()
-
-            self.gen_model.increase_scale()
-            self.disc_model.increase_scale()
-
-            # Generator and Discriminator state data must match:
-            assert self.gen_model.cls_base.__dict__ == \
-                   self.disc_model.cls_base.__dict__
-
-            self.gen_model.to( self.config.dev )
-            self.disc_model.to( self.config.dev )
-
-            # ---------------- #
-
-            # Update Optimizer:
-            self._set_optimizer( )
-
-            # Update Scheduler:
-            if self.sched_bool:
-              self.sched_stop_step += self.scheduler_gen._step_count
-              self._set_scheduler( )
-
-            # ---------------- #
-
-            print( f'\nRESOLUTION INCREASED FROM {_prev_res}x{_prev_res} to ' + \
-                   f'{int( self.gen_model.curr_res )}x{int( self.gen_model.curr_res )}\n' )
-            print( f'FADING IN {int( self.gen_model.curr_res )}x' + \
-                   f'{int( self.gen_model.curr_res )} RESOLUTION...\n' )
-
-            # ---------------- #
-
-            # Update resolution-specific batch size:
-            self.batch_size = self.config.bs_dict[ self.gen_model.curr_res ]
-
-            # ---------------- #
-
-            self._set_loss( )
-
-            # ---------------- #
-
-            train_dl.batch_sampler.batch_size = self.batch_size
-            # self.train_dataiter._index_sampler.batch_size = self.batch_size
-
-            train_dl.dataset.transforms.transform.transforms = \
-              self.increase_real_data_res( transforms_lst = train_dl.dataset.transforms.transform.transforms )
-            if isinstance( self.train_dataiter, torch.utils.data.dataloader._MultiProcessingDataLoaderIter ):
-              self.train_dataiter = iter( train_dl )  # TODO: this makes you re-use your data before epoch end.
-
-            if self.config.bit_exact_resampling:
-              for transform in self.train_dataiter._dataset.transforms.transform.transforms:
-                if isinstance( transform, transforms.Normalize ):
-                  _nrmlz_transform = transform
-              self.ds_sc_resizer = \
-                self.get_real_data_skip_connection_transforms( self.data_config.dataset_downsample_type, _nrmlz_transform )
-            else:
-              # matches the model's skip-connection upsampler
-              self.ds_sc_upsampler = lambda xb: F.interpolate( xb, scale_factor = 2, mode = 'nearest' )
-              # matches the dataset's downsampler
-              if self.data_config.dataset_downsample_type in ( Image.BOX, Image.BILINEAR, ):
-                self.ds_sc_downsampler = lambda xb: F.avg_pool2d( xb, kernel_size = 2, stride = 2 )
-              elif self.data_config.dataset_downsample_type == Image.NEAREST:
-                self.ds_sc_downsampler = lambda xb: F.interpolate( xb, scale_factor = .5, mode = 'nearest' )
-
-            # ---------------- #
-
-            if valid_dl is not None:
-              valid_dl.batch_sampler.batch_size = self.batch_size
-              valid_dl.dataset.transforms.transform.transforms = \
-                self.increase_real_data_res( transforms_lst = valid_dl.dataset.transforms.transform.transforms )
-
-            # ---------------- #
-
-            if z_valid_dl is not None:
-              z_valid_dl.batch_sampler.batch_size = self.batch_size
-
-            # ---------------- #
-
-            # Number of images before switching to next fade-in/stabilization phase:
-            if ( self.config.nimg_transition % self.batch_size ) != 0:
-              self.nimg_transition = self.batch_size * ( int( self.config.nimg_transition / self.batch_size ) + 1 )
-            else:
-              self.nimg_transition = self.config.nimg_transition
-
-            # ---------------- #
-
-            self.delta_alpha = self.batch_size / ( ( self.nimg_transition / num_disc_iters ) - self.batch_size )
-            self.gen_model.alpha = 0  # this applies to both networks simultaneously
-
-            # ---------------- #
-
-            if self.config.use_ewma_gen:
-              if COMPUTE_EWMA_VIA_HALFLIFE:
-                self.beta = self.get_smoothing_ewma_beta( half_life = EWMA_SMOOTHING_HALFLIFE )
-
-              # Update `self.lagged_params`:
-              with torch.no_grad():
-                self.lagged_params[ 'prev_torgb.conv2d.weight' ] = self.lagged_params.pop( 'torgb.conv2d.weight' )
-                self.lagged_params[ 'prev_torgb.conv2d.bias' ] = self.lagged_params.pop( 'torgb.conv2d.bias' )
-                for name, param in IndexedOrderedDict( self.gen_model.named_parameters() ).items():
-                  if name not in self.lagged_params:
-                    self.lagged_params[ name ] = param
-                # Order the names to match that of `self.gen_model`'s order:
-                for name, param in IndexedOrderedDict( self.gen_model.named_parameters() ).items():
-                  if 'fc_mapping_model' in name:
-                    self.lagged_params.move_to_end( name, last = True )
-                for name, param in IndexedOrderedDict( self.gen_model.named_parameters() ).items():
-                  if name == 'torgb.conv2d.weight':
-                    self.lagged_params.move_to_end( name, last = True )
-                for name, param in IndexedOrderedDict( self.gen_model.named_parameters() ).items():
-                  if name == 'torgb.conv2d.bias':
-                    self.lagged_params.move_to_end( name, last = True )
-                for name, param in IndexedOrderedDict( self.gen_model.named_parameters() ).items():
-                  if name == 'prev_torgb.conv2d.weight':
-                    self.lagged_params.move_to_end( name, last = True )
-                for name, param in IndexedOrderedDict( self.gen_model.named_parameters() ).items():
-                  if name == 'prev_torgb.conv2d.bias':
-                    self.lagged_params.move_to_end( name, last = True )
-
-          else:
-            # Update Optimizer:
-            self._set_optimizer( )
-
-            # Update Scheduler:
-            if self.sched_bool:
-              self.sched_stop_step += self.scheduler_gen._step_count
-              self._set_scheduler( )
-
-            # ---------------- #
-
-            print( '\nSTABILIZING...\n' )
-
-          self.nimg_transition_lst.append( self.nimg_transition )
-
+        if self.sched_bool:
+          with warnings.catch_warnings():
+            warnings.simplefilter( 'ignore' )
+            tqdm_lr = '%9s' % ( '%g' % self.scheduler_disc.get_lr()[0] )
+            tqdm_lr += '%9s' % ( '%g' % self.scheduler_gen.get_lr()[0] )
+            # tqdm_desc += f'Generator LR: { " ".join( [ str(s) for s in self.scheduler_gen.get_lr() ] ) } | ' + \
+            #              f'Discriminator LR: { " ".join( [ str(s) for s in self.scheduler_disc.get_lr() ] ) }'
+            # print( f'Generator LR: {*self.scheduler_gen.get_lr()} |', \
+            #        f'Discriminator LR: {*self.scheduler_disc.get_lr()}'
+            # )
         else:
-          if not itr:
-            if self.gen_model.fade_in_phase:
-              print( f'\nFADING IN {int( self.gen_model.curr_res )}x' + \
+          tqdm_lr = '%9s' % ( '%g' % self.config.lr_base )
+          tqdm_lr += '%9s' % ( '%g' % self.config.lr_base )
+
+        # these are set to `False` for the Generator because you don't need
+        # the Discriminator's parameters' gradients when chain-ruling back to the generator
+        for p in self.disc_model.parameters(): p.requires_grad_( True )
+
+        # Determine whether it is time to switch to next fade-in/stabilization phase:
+        if self.gen_model.curr_res < self.gen_model.final_res:
+          if self.curr_img_num == sum( self.nimg_transition_lst ):
+            self.curr_phase_num += 1
+            if self.curr_phase_num % 2 == 1:
+              _prev_res = self.gen_model.curr_res
+
+              self.gen_model.zero_grad()
+              self.disc_model.zero_grad()
+
+              self.gen_model.increase_scale()
+              self.disc_model.increase_scale()
+
+              # Generator and Discriminator state data must match:
+              assert self.gen_model.cls_base.__dict__ == \
+                    self.disc_model.cls_base.__dict__
+
+              self.gen_model.to( self.config.dev )
+              self.disc_model.to( self.config.dev )
+
+              # ---------------- #
+
+              # Update Optimizer:
+              self._set_optimizer( )
+
+              # Update Scheduler:
+              if self.sched_bool:
+                self.sched_stop_step += self.scheduler_gen._step_count
+                self._set_scheduler( )
+
+              # ---------------- #
+
+              print( f'\n\n\nRESOLUTION INCREASED FROM {_prev_res}x{_prev_res} to ' + \
+                    f'{int( self.gen_model.curr_res )}x{int( self.gen_model.curr_res )}\n' )
+              print( f'FADING IN {int( self.gen_model.curr_res )}x' + \
                     f'{int( self.gen_model.curr_res )} RESOLUTION...\n' )
+              print( ('\n' + '%9s' * 8 ) % ( 'Epoch', 'Res', 'Phase', 'D LR', 'G LR', 'D Loss', 'G Loss', 'Itr' ) )
+
+              # ---------------- #
+
+              # Update resolution-specific batch size:
+              self.batch_size = self.config.bs_dict[ self.gen_model.curr_res ]
+
+              # ---------------- #
+
+              self._set_loss( )
+
+              # ---------------- #
+
+              train_dl.batch_sampler.batch_size = self.batch_size
+              # self.train_dataiter._index_sampler.batch_size = self.batch_size
+
+              train_dl.dataset.transforms.transform.transforms = \
+                self.increase_real_data_res( transforms_lst = train_dl.dataset.transforms.transform.transforms )
+              if isinstance( self.train_dataiter, torch.utils.data.dataloader._MultiProcessingDataLoaderIter ):
+                self.train_dataiter = iter( train_dl )  # TODO: this makes you re-use your data before epoch end.
+
+              if self.config.bit_exact_resampling:
+                for transform in self.train_dataiter._dataset.transforms.transform.transforms:
+                  if isinstance( transform, transforms.Normalize ):
+                    _nrmlz_transform = transform
+                self.ds_sc_resizer = \
+                  self.get_real_data_skip_connection_transforms( self.data_config.dataset_downsample_type, _nrmlz_transform )
+              else:
+                # matches the model's skip-connection upsampler
+                self.ds_sc_upsampler = lambda xb: F.interpolate( xb, scale_factor = 2, mode = 'nearest' )
+                # matches the dataset's downsampler
+                if self.data_config.dataset_downsample_type in ( Image.BOX, Image.BILINEAR, ):
+                  self.ds_sc_downsampler = lambda xb: F.avg_pool2d( xb, kernel_size = 2, stride = 2 )
+                elif self.data_config.dataset_downsample_type == Image.NEAREST:
+                  self.ds_sc_downsampler = lambda xb: F.interpolate( xb, scale_factor = .5, mode = 'nearest' )
+
+              # ---------------- #
+
+              if valid_dl is not None:
+                valid_dl.batch_sampler.batch_size = self.batch_size
+                valid_dl.dataset.transforms.transform.transforms = \
+                  self.increase_real_data_res( transforms_lst = valid_dl.dataset.transforms.transform.transforms )
+
+              # ---------------- #
+
+              if z_valid_dl is not None:
+                z_valid_dl.batch_sampler.batch_size = self.batch_size
+
+              # ---------------- #
+
+              # Number of images before switching to next fade-in/stabilization phase:
+              if ( self.config.nimg_transition % self.batch_size ) != 0:
+                self.nimg_transition = self.batch_size * ( int( self.config.nimg_transition / self.batch_size ) + 1 )
+              else:
+                self.nimg_transition = self.config.nimg_transition
+
+              # ---------------- #
+
+              self.delta_alpha = self.batch_size / ( ( self.nimg_transition / num_disc_iters ) - self.batch_size )
+              self.gen_model.alpha = 0  # this applies to both networks simultaneously
+
+              # ---------------- #
+
+              if self.config.use_ewma_gen:
+                if COMPUTE_EWMA_VIA_HALFLIFE:
+                  self.beta = self.get_smoothing_ewma_beta( half_life = EWMA_SMOOTHING_HALFLIFE )
+
+                # Update `self.lagged_params`:
+                with torch.no_grad():
+                  self.lagged_params[ 'prev_torgb.conv2d.weight' ] = self.lagged_params.pop( 'torgb.conv2d.weight' )
+                  self.lagged_params[ 'prev_torgb.conv2d.bias' ] = self.lagged_params.pop( 'torgb.conv2d.bias' )
+                  for name, param in IndexedOrderedDict( self.gen_model.named_parameters() ).items():
+                    if name not in self.lagged_params:
+                      self.lagged_params[ name ] = param
+                  # Order the names to match that of `self.gen_model`'s order:
+                  for name, param in IndexedOrderedDict( self.gen_model.named_parameters() ).items():
+                    if 'fc_mapping_model' in name:
+                      self.lagged_params.move_to_end( name, last = True )
+                  for name, param in IndexedOrderedDict( self.gen_model.named_parameters() ).items():
+                    if name == 'torgb.conv2d.weight':
+                      self.lagged_params.move_to_end( name, last = True )
+                  for name, param in IndexedOrderedDict( self.gen_model.named_parameters() ).items():
+                    if name == 'torgb.conv2d.bias':
+                      self.lagged_params.move_to_end( name, last = True )
+                  for name, param in IndexedOrderedDict( self.gen_model.named_parameters() ).items():
+                    if name == 'prev_torgb.conv2d.weight':
+                      self.lagged_params.move_to_end( name, last = True )
+                  for name, param in IndexedOrderedDict( self.gen_model.named_parameters() ).items():
+                    if name == 'prev_torgb.conv2d.bias':
+                      self.lagged_params.move_to_end( name, last = True )
+
             else:
+              # Update Optimizer:
+              self._set_optimizer( )
+
+              # Update Scheduler:
+              if self.sched_bool:
+                self.sched_stop_step += self.scheduler_gen._step_count
+                self._set_scheduler( )
+
+              # ---------------- #
+
               print( '\nSTABILIZING...\n' )
 
-      if not itr and not self.progressively_grow:
-        print( '\nSTABILIZING (FINAL)...\n' )
+            self.nimg_transition_lst.append( self.nimg_transition )
 
-      # Final phase:
-      if self.curr_img_num == sum( self.nimg_transition_lst ):
-        # Update Optimizer:
-        self._set_optimizer( )
-
-        # Update Scheduler:
-        if self.sched_bool:
-          self.sched_stop_step += self.scheduler_gen._step_count
-          self._set_scheduler( )
-
-        # ---------------- #
-
-        print( '\nSTABILIZING (FINAL)...\n' )
-
-        self.curr_phase_num += 1
-        self.nimg_transition_lst.append( np.inf )
-
-        self._progressively_grow = False
-
-      #------------------------- TRAIN DISCRIMINATOR ----------------------------
-
-      # loss_train_disc = None
-      for disc_iter in range( num_disc_iters ):
-        self.disc_model.zero_grad()
-
-        # Sample latent vector z:
-        if self.cond_gen:
-          # Class-conditioning in the latent space:
-          # TODO: Implement embedding-style conditioning from "Which Training Methods for
-          #       GANs do actually Converge" & discriminator conditioning.
-          gen_labels = torch.randint( 0, self.num_classes, ( self.batch_size, 1, ), dtype = torch.int64, device = self.config.dev )
-          zb = gen_rand_latent_vars( num_samples = self.batch_size, length = self.config.len_latent,
-                                     distribution = self.latent_distribution, device = self.config.dev )
-          self.labels_one_hot_disc.zero_()
-          self.labels_one_hot_disc.scatter_( 1, gen_labels, 1 )
-          if self.ac: gen_labels.squeeze_()
-          zb = torch.cat( ( zb, self.labels_one_hot_disc, ), dim = 1 )
-        else:
-          zb = gen_rand_latent_vars( num_samples = self.batch_size, length = self.config.len_latent,
-                                     distribution = self.latent_distribution, device = self.config.dev )
-        with torch.no_grad(): zbv = zb  # makes sure to totally freeze the generator when training discriminator
-        _xgenb = self.gen_model( zbv ).detach()
-
-        # Sample real data x:
-        batch = next( self.train_dataiter, None )
-        if batch is None:
-          self.curr_epoch_num += 1
-          print( f'\nEPOCH # {self.curr_epoch_num - 1} COMPLETE. BEGIN EPOCH #', \
-                 f'{self.curr_epoch_num}\n' )
-          self.train_dataiter = iter( train_dl )
-          batch = next( self.train_dataiter )
-        # xb = ( batch[0] ).to( self.config.dev )
-        xb = batch[0]
-        # Fade in the real images the same way the generated images are being faded in:
-        if self.gen_model.fade_in_phase:
-          with torch.no_grad():
-            if self.config.bit_exact_resampling:
-              xb_low_res = xb.clone().mul( _ds_std_unsq ).add( _ds_mean_unsq )
-              for sample_idx in range( len( xb_low_res ) ):
-                xb_low_res[ sample_idx ] = self.ds_sc_resizer( xb_low_res[ sample_idx ] )
-              xb = torch.add( xb_low_res.mul( 1. - self.gen_model.alpha ), xb.mul( self.gen_model.alpha ) )
-            else:
-              xb = self.ds_sc_upsampler( self.ds_sc_downsampler( xb ) ) * ( 1. - self.gen_model.alpha ) + \
-                                         xb * ( self.gen_model.alpha )
-        xb = xb.to( self.config.dev )
-        if self.ac: real_labels = ( batch[1] ).to( self.config.dev )
-
-        # Forward prop:
-        if self.ac:
-          discriminative_gen, gen_preds = self.disc_model( _xgenb )
-          discriminative_real, real_preds = self.disc_model( xb )
-        else:
-          discriminative_gen = self.disc_model( _xgenb )
-          discriminative_real = self.disc_model( xb )
-
-        if self.loss == 'wgan':
-          loss_train_disc = ( discriminative_gen - discriminative_real ).mean()
-        elif self.loss in ( 'nonsaturating', 'minimax' ):
-          loss_train_disc = \
-            F.binary_cross_entropy_with_logits( input = discriminative_gen,
-                                                target = self._dummy_target_gen,
-                                                reduction = 'mean' ) + \
-            F.binary_cross_entropy_with_logits( input = discriminative_real,
-                                                target = self._dummy_target_real,
-                                                reduction = 'mean' )
-
-        if self.ac:
-          loss_train_disc += \
-            ( self.loss_func_aux( gen_preds, gen_labels ) + \
-              self.loss_func_aux( real_preds, real_labels )
-            ).mean() * self.config.ac_disc_scale
-
-        if self.gradient_penalty is not None:
-          loss_train_disc += self.calc_gp( _xgenb, xb )
-
-        if self.eps:
-          loss_train_disc += ( discriminative_real**2 ).mean() * self.config.eps_drift
-
-        # Backprop:
-        loss_train_disc.backward()  # compute the gradients
-        self.opt_disc.step()        # update the parameters you specified to the optimizer with backprop
-        # self.opt_disc.zero_grad()
-
-        # Compute metrics for discriminator (validation metrics should be for entire validation set):
-        metrics_vals = []
-        _valid_title = []
-        if z_valid_dl is not None and valid_dl is not None and self.config.disc_metrics:
-          if ( itr + 1 ) % self.config.num_iters_valid == 0 or itr == 0:
-            if disc_iter == 0 and itr != 0:
-              end = timer(); print( f'\nTime since last Validation Set: {end - start} seconds.\n' )
-
-            metrics_vals = self.compute_metrics(
-              metrics = self.config.disc_metrics, metrics_type = 'Discriminator',
-              z_valid_dl = z_valid_dl, valid_dl = valid_dl
-            )
-            _valid_title = [ '|\n', 'Validation Metrics:' ]
-
-        print( f'Discriminator Batch Metrics: Batch # {disc_iter} |', \
-               f'Train Loss {loss_train_disc.item()}', *_valid_title, *metrics_vals
-        )
-
-        self.curr_dataset_batch_num += 1
-        self.curr_img_num += self.batch_size
-
-      #------------------------ TRAIN GENERATOR --------------------------
-
-      # these are set to `False` for the Generator because you don't need
-      # the Discriminator's parameters' gradients when chain-ruling back to the generator
-      for p in self.disc_model.parameters(): p.requires_grad_( False )
-
-      # loss_train_gen = None
-      for gen_iter in range( num_gen_iters ):
-        self.gen_model.zero_grad()
-
-        # Sample latent vector z:
-        if self.cond_gen:
-          # Class-conditioning in the latent space:
-          # TODO: Implement embedding-style conditioning from "Which Training Methods for
-          #       GANs do actually Converge" & discriminator conditioning.
-          gen_labels = torch.randint( 0, self.num_classes, ( self.batch_size * self.config.gen_bs_mult, 1, ), dtype = torch.int64, device = self.config.dev )
-          zb = gen_rand_latent_vars( num_samples = self.batch_size * self.config.gen_bs_mult, length = self.config.len_latent,
-                                     distribution = self.latent_distribution, device = self.config.dev )
-          self.labels_one_hot_gen.zero_()
-          self.labels_one_hot_gen.scatter_( 1, gen_labels, 1 )
-          if self.ac: gen_labels.squeeze_()
-          zb = torch.cat( ( zb, self.labels_one_hot_gen, ), dim = 1 )
-        else:
-          zb = gen_rand_latent_vars( num_samples = self.batch_size * self.config.gen_bs_mult, length = self.config.len_latent,
-                                     distribution = self.latent_distribution, device = self.config.dev )
-        zb.requires_grad_( True )
-
-        # Forward prop:
-        if self.ac:
-          loss_train_gen, gen_preds = self.disc_model( self.gen_model( zb ) )
-        else:
-          loss_train_gen = self.disc_model( self.gen_model( zb ) )
-
-        if self.loss == 'wgan':
-          loss_train_gen = -loss_train_gen.mean()
-        elif self.loss == 'nonsaturating':
-          loss_train_gen = F.binary_cross_entropy_with_logits(
-            input = loss_train_gen,
-            target = self._dummy_target_real,
-            reduction = 'mean'
-          )
-        elif self.loss == 'minimax':
-          loss_train_gen = -F.binary_cross_entropy_with_logits(
-            input = loss_train_gen,
-            target = self._dummy_target_gen,
-            reduction = 'mean'
-          )
-
-        if self.ac:
-          loss_train_gen += self.loss_func_aux( gen_preds, gen_labels ).mean() * self.config.ac_gen_scale
-
-        # Backprop:
-        loss_train_gen.backward()  # compute the gradients
-        # loss_train_gen = -loss_train_gen
-        self.opt_gen.step()        # update the parameters you specified to the optimizer with backprop
-        # self.opt_gen.zero_grad()
-
-        # Calculate validation EWMA smoothing of generator weights & biases:
-        # TODO: Should this not be applied to the biases (i.e. just the weights)?
-        if self.config.use_ewma_gen:
-          with torch.no_grad():
-            for name, param in self.gen_model.named_parameters():
-              if self.beta:
-                self.lagged_params[ name ] = param * ( 1. - self.beta ) + \
-                                             self.lagged_params[ name ] * ( self.beta )
+          else:
+            if not itr:
+              if self.gen_model.fade_in_phase:
+                print( f'\nFADING IN {int( self.gen_model.curr_res )}x' + \
+                      f'{int( self.gen_model.curr_res )} RESOLUTION...\n' )
               else:
-                self.lagged_params[ name ] = param
+                print( '\nSTABILIZING...\n' )
 
-        # Compute metrics for generator (validation metrics should be for entire validation set):
-        metrics_vals = []
-        _valid_title = []
-        if z_valid_dl is not None and self.config.gen_metrics:
-          if ( itr + 1 ) % self.config.num_iters_valid == 0 or itr == 0:
-            metrics_vals = self.compute_metrics(
-              metrics = self.config.gen_metrics, metrics_type = 'Generator',
-              z_valid_dl = z_valid_dl, valid_dl = None
+        if not itr and not self.progressively_grow:
+          print( '\nSTABILIZING (FINAL)...\n' )
+
+        # Final phase:
+        if self.curr_img_num == sum( self.nimg_transition_lst ):
+          # Update Optimizer:
+          self._set_optimizer( )
+
+          # Update Scheduler:
+          if self.sched_bool:
+            self.sched_stop_step += self.scheduler_gen._step_count
+            self._set_scheduler( )
+
+          # ---------------- #
+
+          print( '\nSTABILIZING (FINAL)...\n' )
+
+          self.curr_phase_num += 1
+          self.nimg_transition_lst.append( np.inf )
+
+          self._progressively_grow = False
+
+        #------------------------- TRAIN DISCRIMINATOR ----------------------------
+
+        # loss_train_disc = None
+        for disc_iter in range( num_disc_iters ):
+          self.disc_model.zero_grad()
+
+          # Sample latent vector z:
+          if self.cond_gen:
+            # Class-conditioning in the latent space:
+            # TODO: Implement embedding-style conditioning from "Which Training Methods for
+            #       GANs do actually Converge" & discriminator conditioning.
+            gen_labels = torch.randint( 0, self.num_classes, ( self.batch_size, 1, ), dtype = torch.int64, device = self.config.dev )
+            zb = gen_rand_latent_vars( num_samples = self.batch_size, length = self.config.len_latent,
+                                      distribution = self.latent_distribution, device = self.config.dev )
+            self.labels_one_hot_disc.zero_()
+            self.labels_one_hot_disc.scatter_( 1, gen_labels, 1 )
+            if self.ac: gen_labels.squeeze_()
+            zb = torch.cat( ( zb, self.labels_one_hot_disc, ), dim = 1 )
+          else:
+            zb = gen_rand_latent_vars( num_samples = self.batch_size, length = self.config.len_latent,
+                                      distribution = self.latent_distribution, device = self.config.dev )
+          with torch.no_grad(): zbv = zb  # makes sure to totally freeze the generator when training discriminator
+          _xgenb = self.gen_model( zbv ).detach()
+
+          # Sample real data x:
+          batch = next( self.train_dataiter, None )
+          if batch is None:
+            self.curr_epoch_num += 1
+            pbar.close()
+            print( f'\n\nEPOCH # {self.curr_epoch_num - 1} COMPLETE. BEGIN EPOCH #', \
+                  f'{self.curr_epoch_num}\n' )
+            print( ('\n' + '%9s' * 8 ) % ( 'Epoch', 'Res', 'Phase', 'D LR', 'G LR', 'D Loss', 'G Loss', 'Itr' ) )
+            pbar = tqdm( total = self.dataset_sz // self.batch_size * self.batch_size, unit = ' imgs' )
+            self.train_dataiter = iter( train_dl )
+            batch = next( self.train_dataiter )
+          # xb = ( batch[0] ).to( self.config.dev )
+          xb = batch[0]
+
+          # Fade in the real images the same way the generated images are being faded in:
+          if self.gen_model.fade_in_phase:
+            with torch.no_grad():
+              if self.config.bit_exact_resampling:
+                xb_low_res = xb.clone().mul( _ds_std_unsq ).add( _ds_mean_unsq )
+                for sample_idx in range( len( xb_low_res ) ):
+                  xb_low_res[ sample_idx ] = self.ds_sc_resizer( xb_low_res[ sample_idx ] )
+                xb = torch.add( xb_low_res.mul( 1. - self.gen_model.alpha ), xb.mul( self.gen_model.alpha ) )
+              else:
+                xb = self.ds_sc_upsampler( self.ds_sc_downsampler( xb ) ) * ( 1. - self.gen_model.alpha ) + \
+                                          xb * ( self.gen_model.alpha )
+          xb = xb.to( self.config.dev )
+          if self.ac: real_labels = ( batch[1] ).to( self.config.dev )
+
+          # Forward prop:
+          if self.ac:
+            discriminative_gen, gen_preds = self.disc_model( _xgenb )
+            discriminative_real, real_preds = self.disc_model( xb )
+          else:
+            discriminative_gen = self.disc_model( _xgenb )
+            discriminative_real = self.disc_model( xb )
+
+          if self.loss == 'wgan':
+            loss_train_disc = ( discriminative_gen - discriminative_real ).mean()
+          elif self.loss in ( 'nonsaturating', 'minimax' ):
+            loss_train_disc = \
+              F.binary_cross_entropy_with_logits( input = discriminative_gen,
+                                                  target = self._dummy_target_gen,
+                                                  reduction = 'mean' ) + \
+              F.binary_cross_entropy_with_logits( input = discriminative_real,
+                                                  target = self._dummy_target_real,
+                                                  reduction = 'mean' )
+
+          if self.ac:
+            loss_train_disc += \
+              ( self.loss_func_aux( gen_preds, gen_labels ) + \
+                self.loss_func_aux( real_preds, real_labels )
+              ).mean() * self.config.ac_disc_scale
+
+          if self.gradient_penalty is not None:
+            loss_train_disc += self.calc_gp( _xgenb, xb )
+
+          if self.eps:
+            loss_train_disc += ( discriminative_real**2 ).mean() * self.config.eps_drift
+
+          # Backprop:
+          loss_train_disc.backward()  # compute the gradients
+          self.opt_disc.step()        # update the parameters you specified to the optimizer with backprop
+          # self.opt_disc.zero_grad()
+
+          # Compute metrics for discriminator (validation metrics should be for entire validation set):
+          metrics_vals = []
+          _valid_title = []
+          if z_valid_dl is not None and valid_dl is not None and self.config.disc_metrics:
+            if ( disc_iter == num_disc_iters - 1 ) and ( ( itr + 1 ) % self.config.num_iters_valid == 0 or itr == 0 ):
+              if itr != 0:
+                end = timer(); print( f'\n\nTime since last Validation Set: {end - start} seconds.' )
+
+              metrics_vals = self.compute_metrics(
+                metrics = self.config.disc_metrics, metrics_type = 'Discriminator',
+                z_valid_dl = z_valid_dl, valid_dl = valid_dl
+              )
+              _valid_title = [ '|\n', 'Discriminator Validation Metrics:\n' ]
+              print( *_valid_title, *metrics_vals )
+
+          tqdm_loss_disc = '%9.4g' % loss_train_disc.item()
+          if itr:
+            tqdm_desc = '%9s' % f'{self.curr_epoch_num}/{self.tot_num_epochs}'
+            tqdm_desc += '%9s' % f'{self.gen_model.curr_res}X{self.gen_model.curr_res}'
+            tqdm_desc += '%9s' % ( 'Fade In' if self.gen_model.fade_in_phase else 'Stab.' )
+            tqdm_desc += tqdm_lr
+            tqdm_desc += tqdm_loss_disc + tqdm_loss_gen
+            tqdm_desc += '%9s' % itr
+            tqdm_desc += '    Img'
+            pbar.set_description( tqdm_desc )
+
+          pbar.update( xb.shape[0] )
+
+          self.curr_dataset_batch_num += 1
+          self.curr_img_num += self.batch_size
+
+        #------------------------ TRAIN GENERATOR --------------------------
+
+        # these are set to `False` for the Generator because you don't need
+        # the Discriminator's parameters' gradients when chain-ruling back to the generator
+        for p in self.disc_model.parameters(): p.requires_grad_( False )
+
+        # loss_train_gen = None
+        for gen_iter in range( num_gen_iters ):
+          self.gen_model.zero_grad()
+
+          # Sample latent vector z:
+          if self.cond_gen:
+            # Class-conditioning in the latent space:
+            # TODO: Implement embedding-style conditioning from "Which Training Methods for
+            #       GANs do actually Converge" & discriminator conditioning.
+            gen_labels = torch.randint( 0, self.num_classes, ( self.batch_size * self.config.gen_bs_mult, 1, ), dtype = torch.int64, device = self.config.dev )
+            zb = gen_rand_latent_vars( num_samples = self.batch_size * self.config.gen_bs_mult, length = self.config.len_latent,
+                                      distribution = self.latent_distribution, device = self.config.dev )
+            self.labels_one_hot_gen.zero_()
+            self.labels_one_hot_gen.scatter_( 1, gen_labels, 1 )
+            if self.ac: gen_labels.squeeze_()
+            zb = torch.cat( ( zb, self.labels_one_hot_gen, ), dim = 1 )
+          else:
+            zb = gen_rand_latent_vars( num_samples = self.batch_size * self.config.gen_bs_mult, length = self.config.len_latent,
+                                      distribution = self.latent_distribution, device = self.config.dev )
+          zb.requires_grad_( True )
+
+          # Forward prop:
+          if self.ac:
+            loss_train_gen, gen_preds = self.disc_model( self.gen_model( zb ) )
+          else:
+            loss_train_gen = self.disc_model( self.gen_model( zb ) )
+
+          if self.loss == 'wgan':
+            loss_train_gen = -loss_train_gen.mean()
+          elif self.loss == 'nonsaturating':
+            loss_train_gen = F.binary_cross_entropy_with_logits(
+              input = loss_train_gen,
+              target = self._dummy_target_real,
+              reduction = 'mean'
             )
-            _valid_title = [ '|\n', 'Validation Metrics:' ]
+          elif self.loss == 'minimax':
+            loss_train_gen = -F.binary_cross_entropy_with_logits(
+              input = loss_train_gen,
+              target = self._dummy_target_gen,
+              reduction = 'mean'
+            )
 
-            if gen_iter == num_gen_iters - 1: start = timer()
+          if self.ac:
+            loss_train_gen += self.loss_func_aux( gen_preds, gen_labels ).mean() * self.config.ac_gen_scale
 
-        print( f'Generator Batch Metrics: Batch # {gen_iter} |', \
-               f'Train Loss {loss_train_gen.item()}', *_valid_title, *metrics_vals
-        )
+          # Backprop:
+          loss_train_gen.backward()  # compute the gradients
+          # loss_train_gen = -loss_train_gen
+          self.opt_gen.step()        # update the parameters you specified to the optimizer with backprop
+          # self.opt_gen.zero_grad()
 
-      # Update fading-in paramater alpha:
-      if self.gen_model.fade_in_phase:
-        self.gen_model.alpha += self.delta_alpha  # this affects both networks
-
-      if self.sched_bool:
-        self.scheduler_gen.step()
-        self.scheduler_disc.step()
-
-      if self.not_trained_yet:
-        self.not_trained_yet = False
-
-      # Save model every self.config.num_iters_save_model iterations:
-      if ( itr + 1 ) % self.config.num_iters_save_model == 0:
-        self._set_optimizer( )  # for niche case when training ends right when alpha becomes 1
-
-        # update time-averaged generator
-        with torch.no_grad():
-          self.gen_model.to( 'cpu' )
+          # Calculate validation EWMA smoothing of generator weights & biases:
+          # TODO: Should this not be applied to the biases (i.e. just the weights)?
           if self.config.use_ewma_gen:
-            self._update_gen_lagged( )
-            self.gen_model_lagged.to( 'cpu' )
-            self.gen_model_lagged.eval()
+            with torch.no_grad():
+              for name, param in self.gen_model.named_parameters():
+                if self.beta:
+                  self.lagged_params[ name ] = param * ( 1. - self.beta ) + \
+                                              self.lagged_params[ name ] * ( self.beta )
+                else:
+                  self.lagged_params[ name ] = param
 
-        self.gen_model.eval()
-        self.disc_model.to( 'cpu' )
-        self.disc_model.eval()
+          # Compute metrics for generator (validation metrics should be for entire validation set):
+          metrics_vals = []
+          _valid_title = []
+          if z_valid_dl is not None and self.config.gen_metrics:
+            if ( gen_iter == num_gen_iters - 1 ) and ( ( itr + 1 ) % self.config.num_iters_valid == 0 or itr == 0 ):
+              metrics_vals = self.compute_metrics(
+                metrics = self.config.gen_metrics, metrics_type = 'Generator',
+                z_valid_dl = z_valid_dl, valid_dl = None
+              )
+              _valid_title = [ '|\n', 'Generator Validation Metrics:\n' ]
+              print( *_valid_title, *metrics_vals )
+              if itr:
+                print( ('\n' + '%9s' * 8 ) % ( 'Epoch', 'Res', 'Phase', 'D LR', 'G LR', 'D Loss', 'G Loss', 'Itr' ) )
 
-        self.save_model( self.config.save_model_dir/( self.model.casefold().replace( " ", "" ) + '_model.tar' ) )
+              start = timer()
 
-        self.gen_model.to( self.config.dev )
-        self.gen_model.train()
-        self.disc_model.to( self.config.dev )
-        self.disc_model.train()
+          tqdm_loss_gen = '%9.4g' % loss_train_gen.item()
+          if itr:
+            tqdm_desc = '%9s' % f'{self.curr_epoch_num}/{self.tot_num_epochs}'
+            tqdm_desc += '%9s' % f'{self.gen_model.curr_res}X{self.gen_model.curr_res}'
+            tqdm_desc += '%9s' % ( 'Fade In' if self.gen_model.fade_in_phase else 'Stab.' )
+            tqdm_desc += tqdm_lr
+            tqdm_desc += tqdm_loss_disc + tqdm_loss_gen
+            tqdm_desc += '%9s' % itr
+            tqdm_desc += '    Img'
+            pbar.set_description( tqdm_desc )
+
+        if not itr:
+          print( ('\n' + '%9s' * 8 ) % ( 'Epoch', 'Res', 'Phase', 'D LR', 'G LR', 'D Loss', 'G Loss', 'Itr' ) )
+        # pbar.set_postfix( tqdm_desc )
+        # tqdm.write( tqdm_desc )
+        
+        # Update fading-in paramater alpha:
+        if self.gen_model.fade_in_phase:
+          self.gen_model.alpha += self.delta_alpha  # this affects both networks
+
+        if self.sched_bool:
+          self.scheduler_gen.step()
+          self.scheduler_disc.step()
+
+        if self.not_trained_yet:
+          self.not_trained_yet = False
+
+        # Save model every self.config.num_iters_save_model iterations:
+        if ( itr + 1 ) % self.config.num_iters_save_model == 0:
+          self._set_optimizer( )  # for niche case when training ends right when alpha becomes 1
+
+          # update time-averaged generator
+          with torch.no_grad():
+            self.gen_model.to( 'cpu' )
+            if self.config.use_ewma_gen:
+              self._update_gen_lagged( )
+              self.gen_model_lagged.to( 'cpu' )
+              self.gen_model_lagged.eval()
+
+          self.gen_model.eval()
+          self.disc_model.to( 'cpu' )
+          self.disc_model.eval()
+
+          self.save_model( self.config.save_model_dir/( self.model.casefold().replace( " ", "" ) + '_model.tar' ) )
+
+          self.gen_model.to( self.config.dev )
+          self.gen_model.train()
+          self.disc_model.to( self.config.dev )
+          self.disc_model.train()
+          if self.config.use_ewma_gen:
+            self.gen_model_lagged.to( self.config.metrics_dev )
+            self.gen_model_lagged.train()
+
+
+    except KeyboardInterrupt:
+      
+      pbar.close()
+
+      self._set_optimizer( )  # for niche case when training ends right when alpha becomes 1
+
+      # update time-averaged generator
+      with torch.no_grad():
+        self.gen_model.to( 'cpu' )
         if self.config.use_ewma_gen:
-          self.gen_model_lagged.to( self.config.metrics_dev )
-          self.gen_model_lagged.train()
+          self._update_gen_lagged( )
+          self.gen_model_lagged.to( 'cpu' )
+          self.gen_model_lagged.eval()
+
+      self.gen_model.eval()
+      self.disc_model.to( 'cpu' )
+      self.disc_model.eval()
+
+      self.save_model( self.config.save_model_dir/( self.model.casefold().replace( " ", "" ) + '_model.tar' ) )
+
+      print( f'\nTraining interrupted. Saved latest checkpoint into "{self.config.save_model_dir}/".\n' )
+
+      try:
+        sys.exit( 0 )
+      except SystemExit:
+        os._exit( 0 )
+
+
+    pbar.close()
 
     self._set_optimizer( )  # for niche case when training ends right when alpha becomes 1
 
@@ -1095,7 +1184,7 @@ class ProGANLearner( GANLearner ):
     plt.show()
 
   @torch.no_grad()
-  def make_image_grid( self, zs, labels = None, time_average = True ):
+  def make_image_grid( self, zs, labels = None, time_average = True, save_path = None ):
     """Generates grid of images from input latent codes, whose size is `np.sqrt( len( zs ) )`."""
     if self.ds_mean is None or self.ds_std is None:
       raise ValueError( "This model does not hold any information about your dataset's mean and/or std.\n" + \
@@ -1136,6 +1225,12 @@ class ProGANLearner( GANLearner ):
     logger.setLevel( _old_level )
     fig.subplots_adjust( left = 0, right = 1, bottom = 0, top = 1, wspace = 0, hspace = 0 )
 
+    # maintain resolution of images and save
+    if save_path is not None:
+      bbox = axs[-1].get_window_extent().transformed( fig.dpi_scale_trans.inverted() )
+      dpi = ( self.gen_model_lagged.curr_res if time_average else self.gen_model.curr_res ) / bbox.height
+      fig.savefig( save_path, dpi = dpi, pad_inches = 0 )
+
     return ( fig, axs, )
 
   # .......................................................................... #
@@ -1143,6 +1238,8 @@ class ProGANLearner( GANLearner ):
   def save_model( self, save_path:Path ):
     if self.not_trained_yet:
       raise Exception( 'Please train your model for atleast 1 iteration before saving.' )
+
+    warnings.filterwarnings( 'ignore', category = UserWarning )
 
     self.gen_model_metadata = { 'gen_model_upsampler': self.gen_model_upsampler,
                                 'num_classes_gen': self.num_classes_gen }
@@ -1178,7 +1275,7 @@ class ProGANLearner( GANLearner ):
                 'batch_size': self.batch_size,
                 'curr_dataset_batch_num': self.curr_dataset_batch_num,
                 'curr_epoch_num': self.curr_epoch_num,
-                'curr_valid_num': self.curr_valid_num,
+                'tot_num_epochs': self.tot_num_epochs,
                 'dataset_sz': self.dataset_sz,
                 'ac': self.ac,
                 'cond_gen': self.cond_gen,
@@ -1307,7 +1404,7 @@ class ProGANLearner( GANLearner ):
 
     self.curr_dataset_batch_num = checkpoint['curr_dataset_batch_num']
     self.curr_epoch_num = checkpoint['curr_epoch_num']
-    self.curr_valid_num = checkpoint['curr_valid_num']
+    self.tot_num_epochs = checkpoint['tot_num_epochs']
     self.dataset_sz = checkpoint['dataset_sz']
 
     self.ac = checkpoint['ac']

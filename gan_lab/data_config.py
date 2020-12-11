@@ -238,7 +238,7 @@ if __name__ == '__main__':
            ' for ProGAN and StyleGAN, this target resolution is every resolution stage from config.init_res to the final resolution (i.e. config.res_samples) inclusive;' + \
            ' (side-note: if config has not yet been initialized, the ds_transforms attribute of data_config will show Resize as a "functools.partial" function until config is initialized)' )
   parser.add_argument( '--enable_mirror_augmentation', type = str2bool, nargs = '?', const = True, default = False, \
-    help = 'whether to enable mirror augmentation (i.e. horizontal-flip augmentation)' )
+    help = 'whether to enable mirror augmentation (i.e. horizontal-flip/flip-lr augmentation)' )
   parser.add_argument( '--standardize', type = str2bool, nargs = '?', const = True, default = False, \
     help = 'optional (not recommended) standardization of pixels based on dataset statistics;' + \
            ' otherwise, map lowest possible pixel value to -1. and highest possible pixel value to 1 by default.' )

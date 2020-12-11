@@ -54,6 +54,8 @@ from utils.backprop_utils import wasserstein_distance_gen, \
                                  configure_adam_for_gan
 from utils.custom_layers import NearestPool2d, BilinearPool2d
 
+import os
+import sys
 import copy
 import logging
 import warnings
@@ -68,7 +70,8 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-# from tqdm import tqdm
+from tqdm import tqdm
+from tqdm.autonotebook import tqdm as tqdma
 
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ #
 
@@ -115,8 +118,7 @@ class GANLearner( object ):
     if _model_selected:
       self.batch_size = self.config.batch_size
     self.curr_dataset_batch_num = 0
-    self.curr_epoch_num = 0
-    self.curr_valid_num = 0
+    self.curr_epoch_num = 1
 
     # Supervised/Unsupervised method selection:
     self.num_classes = 0
@@ -135,7 +137,11 @@ class GANLearner( object ):
         self.num_classes_gen = config.num_classes
         self.cond_gen = True
 
-    assert config.res_samples <= config.res_dataset
+    if not ( config.res_samples <= config.res_dataset ):
+      message = f'Resolution of generated images (config.res_samples = {config.res_samples}) must be less than\n' + \
+                f'or equal to resolution of dataset (config.res_dataset = {config.res_dataset}) at all times.\n' + \
+                f'Please set config.res_samples <= config.res_dataset.'
+      raise ValueError( message )
 
     # Generator Upsampling selection:
     if config.model_upsample_type.casefold() == 'nearest':
@@ -280,6 +286,7 @@ class GANLearner( object ):
 
     # Training State data:
     self.curr_img_num = 0
+    self.tot_num_epochs = None
 
     # Whether to begin training for the first time or continue training:
     self.not_trained_yet = True
@@ -354,6 +361,7 @@ class GANLearner( object ):
                                  device = self.config.dev, dtype = torch.float32 ) for metric in metrics }
 
     if z_valid_dl is not None:
+      pbarv = tqdma( total = _len_z_valid_ds, unit = ' imgs', dynamic_ncols = True )
       for n in range( _len_z_valid_dl ):
         # Uncomment the below if validation set is taking up too much memory
         # zb = gen_rand_latent_vars( num_samples = self.batch_size, length = config.len_latent, distribution = 'normal', device = self.config.dev )
@@ -394,11 +402,11 @@ class GANLearner( object ):
                 self.grid_inputs_constructed = True
 
             if self.grid_inputs_constructed and not self._img_grid_constructed:
-              fig, _ = self.make_image_grid( zs = self.valid_z, labels = self.valid_label )
               save_img_grid_dir = \
                 self.config.save_samples_dir/self.model.casefold().replace( " ", "" )/self.data_config.dataset/'image_grid'
               save_img_grid_dir.mkdir( parents = True, exist_ok = True )
-              fig.savefig( save_img_grid_dir/( str( self.gen_metrics_num ) + '.png' ), pad_inches = 0 )
+              fig, _ = self.make_image_grid( zs = self.valid_z, labels = self.valid_label,
+                                             save_path = str( save_img_grid_dir/( str( self.gen_metrics_num ) + '.png' ) ) )
               # plt.show( )
               self._img_grid_constructed = True
           self.gen_metrics_num += 1 if n == ( _len_z_valid_dl - 1 ) else 0
@@ -437,11 +445,15 @@ class GANLearner( object ):
               # if self.gradient_penalty is not None:
               #   metrics_tensors['generator loss'][:len(zb), n] += self.gp_func( _xgenb, xb )
           self.disc_metrics_num += 1 if n == ( _len_z_valid_dl - 1 ) else 0
+        pbarv.set_description( ' Img' )
+        pbarv.update( _len_zb )
+    pbarv.close()
     metrics_vals = [
       ( vals_tensor.sum() / _len_z_valid_ds ).item() \
       for vals_tensor in metrics_tensors.values()
     ]
-    metrics_vals = [ f'{metric}:{metrics_vals[n]}' for n, metric in enumerate( metrics ) if metric != 'image grid' ]
+    _max_len = '%-' + str( max( [ len( s ) for s in metrics ] ) + 3 ) + 's'
+    metrics_vals = [ '    ' + ( _max_len % ( metric + ':' ) ) + '%.4g' % metrics_vals[n] + '\n' for n, metric in enumerate( metrics ) if metric != 'image grid' ]
 
     self.gen_model.train()
     self.disc_model.train()
@@ -487,213 +499,276 @@ class GANLearner( object ):
 
     # Allows one to start from where they left off:
     if self.not_trained_yet:
-      print( 'STARTING FROM ITERATION 0:' )
+      print( 'STARTING FROM ITERATION 0:\n' )
       self.train_dataiter = iter( train_dl )
     else:
-      print( 'CONTINUING FROM WHERE YOU LEFT OFF:' )
+      print( 'CONTINUING FROM WHERE YOU LEFT OFF:\n' )
       if self.pretrained_model:
         self.train_dataiter = iter( train_dl )
 
+    if self.tot_num_epochs is None:
+      self.tot_num_epochs = num_main_iters * self.batch_size
+      self.tot_num_epochs *= num_disc_iters
+      self.tot_num_epochs //= self.dataset_sz // self.batch_size * self.batch_size
+      self.tot_num_epochs += 1
+
+    pbar = tqdm( total = self.dataset_sz // self.batch_size * self.batch_size, unit = ' imgs' )
+
     # ------------------------------------------------------------------------ #
 
-    # for itr in tqdm( range( num_main_iters ) ):
-    for itr in range( num_main_iters ):
-      print( 'ITERATION #', itr )
+    try:
 
-      if self.sched_bool:
-        with warnings.catch_warnings():
-          warnings.simplefilter( 'ignore' )
-          print( f'Generator LR: {self.scheduler_gen.get_lr()} |', \
-                 f'Discriminator LR: {self.scheduler_disc.get_lr()}'
-          )
+      for itr in range( num_main_iters ):
 
-      #------------------------ TRAIN GENERATOR --------------------------
-
-      # these are set to `False` for the Generator because you don't need
-      # the Discriminator's parameters' gradients when chain-ruling back to the generator
-      for p in self.disc_model.parameters(): p.requires_grad_( False )
-
-      # loss_train_gen = None
-      for gen_iter in range( num_gen_iters ):
-        self.gen_model.zero_grad()
-
-        # Sample latent vector z:
-        if self.cond_gen:
-          # Class-conditioning in the latent space:
-          # TODO: Implement embedding-style conditioning from "Which Training Methods for
-          #       GANs do actually Converge" & discriminator conditioning.
-          gen_labels = torch.randint( 0, self.num_classes, ( self.batch_size * self.config.gen_bs_mult, 1, ), dtype = torch.int64, device = self.config.dev )
-          zb = gen_rand_latent_vars( num_samples = self.batch_size * self.config.gen_bs_mult, length = self.config.len_latent,
-                                     distribution = self.config.latent_distribution, device = self.config.dev )
-          self.labels_one_hot_gen.zero_()
-          self.labels_one_hot_gen.scatter_( 1, gen_labels, 1 )
-          if self.ac: gen_labels.squeeze_()
-          zb = torch.cat( ( zb, self.labels_one_hot_gen, ), dim = 1 )
+        if self.sched_bool:
+          with warnings.catch_warnings():
+            warnings.simplefilter( 'ignore' )
+            tqdm_lr = '%9s' % ( '%g' % self.scheduler_disc.get_lr()[0] )
+            tqdm_lr += '%9s' % ( '%g' % self.scheduler_gen.get_lr()[0] )
+            # tqdm_desc += f'Generator LR: { " ".join( [ str(s) for s in self.scheduler_gen.get_lr() ] ) } | ' + \
+            #              f'Discriminator LR: { " ".join( [ str(s) for s in self.scheduler_disc.get_lr() ] ) }'
+            # print( f'Generator LR: {*self.scheduler_gen.get_lr()} |', \
+            #        f'Discriminator LR: {*self.scheduler_disc.get_lr()}'
+            # )
         else:
-          zb = gen_rand_latent_vars( num_samples = self.batch_size * self.config.gen_bs_mult, length = self.config.len_latent,
-                                     distribution = self.config.latent_distribution, device = self.config.dev )
-        zb.requires_grad_( True )
+          tqdm_lr = '%9s' % ( '%g' % self.config.lr_base )
+          tqdm_lr += '%9s' % ( '%g' % self.config.lr_base )
 
-        # Forward prop:
-        if self.ac:
-          loss_train_gen, gen_preds = self.disc_model( self.gen_model( zb ) )
-        else:
-          loss_train_gen = self.disc_model( self.gen_model( zb ) )
+        #------------------------ TRAIN GENERATOR --------------------------
 
-        if self.loss == 'wgan':
-          loss_train_gen = -loss_train_gen.mean()
-        elif self.loss == 'nonsaturating':
-          loss_train_gen = F.binary_cross_entropy_with_logits(
-            input = loss_train_gen,
-            target = self._dummy_target_real,
-            reduction = 'mean'
-          )
-        elif self.loss == 'minimax':
-          loss_train_gen = -F.binary_cross_entropy_with_logits(
-            input = loss_train_gen,
-            target = self._dummy_target_gen,
-            reduction = 'mean'
-          )
+        # these are set to `False` for the Generator because you don't need
+        # the Discriminator's parameters' gradients when chain-ruling back to the generator
+        for p in self.disc_model.parameters(): p.requires_grad_( False )
 
-        if self.ac:
-          loss_train_gen += self.loss_func_aux( gen_preds, gen_labels ).mean() * self.config.ac_gen_scale
+        # loss_train_gen = None
+        for gen_iter in range( num_gen_iters ):
+          self.gen_model.zero_grad()
 
-        # Backprop:
-        loss_train_gen.backward()  # compute the gradients
-        # loss_train_gen = -loss_train_gen
-        self.opt_gen.step()        # update the parameters you specified to the optimizer with backprop
-        # self.opt_gen.zero_grad()
+          # Sample latent vector z:
+          if self.cond_gen:
+            # Class-conditioning in the latent space:
+            # TODO: Implement embedding-style conditioning from "Which Training Methods for
+            #       GANs do actually Converge" & discriminator conditioning.
+            gen_labels = torch.randint( 0, self.num_classes, ( self.batch_size * self.config.gen_bs_mult, 1, ), dtype = torch.int64, device = self.config.dev )
+            zb = gen_rand_latent_vars( num_samples = self.batch_size * self.config.gen_bs_mult, length = self.config.len_latent,
+                                      distribution = self.config.latent_distribution, device = self.config.dev )
+            self.labels_one_hot_gen.zero_()
+            self.labels_one_hot_gen.scatter_( 1, gen_labels, 1 )
+            if self.ac: gen_labels.squeeze_()
+            zb = torch.cat( ( zb, self.labels_one_hot_gen, ), dim = 1 )
+          else:
+            zb = gen_rand_latent_vars( num_samples = self.batch_size * self.config.gen_bs_mult, length = self.config.len_latent,
+                                      distribution = self.config.latent_distribution, device = self.config.dev )
+          zb.requires_grad_( True )
 
-        # Compute metrics for generator (validation metrics should be for entire validation set):
-        metrics_vals = []
-        _valid_title = []
-        if z_valid_dl is not None and self.config.gen_metrics:
-          if ( itr + 1 ) % self.config.num_iters_valid == 0 or itr == 0:
-            if gen_iter == 0 and itr != 0:
-              end = timer(); print( f'\nTime since last Validation Set: {end - start} seconds.\n' )
+          # Forward prop:
+          if self.ac:
+            loss_train_gen, gen_preds = self.disc_model( self.gen_model( zb ) )
+          else:
+            loss_train_gen = self.disc_model( self.gen_model( zb ) )
 
-            metrics_vals = self.compute_metrics(
-              metrics = self.config.gen_metrics, metrics_type = 'Generator',
-              z_valid_dl = z_valid_dl, valid_dl = None
+          if self.loss == 'wgan':
+            loss_train_gen = -loss_train_gen.mean()
+          elif self.loss == 'nonsaturating':
+            loss_train_gen = F.binary_cross_entropy_with_logits(
+              input = loss_train_gen,
+              target = self._dummy_target_real,
+              reduction = 'mean'
             )
-            _valid_title = [ '|\n', 'Validation Metrics:' ]
-
-        print( f'Generator Batch Metrics: Batch # {gen_iter} |', \
-               f'Train Loss {loss_train_gen.item()}', *_valid_title, *metrics_vals
-        )
-
-      #------------------------- TRAIN DISCRIMINATOR ----------------------------
-
-      # these are set to `False` for the Generator because you don't need
-      # the Discriminator's parameters' gradients when chain-ruling back to the generator
-      for p in self.disc_model.parameters(): p.requires_grad_( True )
-
-      # loss_train_disc = None
-      for disc_iter in range( num_disc_iters ):
-        self.disc_model.zero_grad()
-
-        # Sample latent vector z:
-        if self.cond_gen:
-          # Class-conditioning in the latent space:
-          # TODO: Implement embedding-style conditioning from "Which Training Methods for
-          #       GANs do actually Converge" & discriminator conditioning.
-          gen_labels = torch.randint( 0, self.num_classes, ( self.batch_size, 1, ), dtype = torch.int64, device = self.config.dev )
-          zb = gen_rand_latent_vars( num_samples = self.batch_size, length = self.config.len_latent,
-                                     distribution = self.config.latent_distribution, device = self.config.dev )
-          self.labels_one_hot_disc.zero_()
-          self.labels_one_hot_disc.scatter_( 1, gen_labels, 1 )
-          if self.ac: gen_labels.squeeze_()
-          zb = torch.cat( ( zb, self.labels_one_hot_disc, ), dim = 1 )
-        else:
-          zb = gen_rand_latent_vars( num_samples = self.batch_size, length = self.config.len_latent,
-                                     distribution = self.config.latent_distribution, device = self.config.dev )
-        with torch.no_grad(): zbv = zb  # makes sure to totally freeze the generator when training discriminator
-        _xgenb = self.gen_model( zbv ).detach()
-
-        # Sample real data x:
-        batch = next( self.train_dataiter, None )
-        if batch is None:
-          self.curr_epoch_num += 1
-          print( f'\nEPOCH # {self.curr_epoch_num - 1} COMPLETE. BEGIN EPOCH #', \
-                 f'{self.curr_epoch_num}\n' )
-          self.train_dataiter = iter( train_dl )
-          batch = next( self.train_dataiter )
-        xb = ( batch[0] ).to( self.config.dev )
-        if self.ac: real_labels = ( batch[1] ).to( self.config.dev )
-
-        # Forward prop:
-        if self.ac:
-          discriminative_gen, gen_preds = self.disc_model( _xgenb )
-          discriminative_real, real_preds = self.disc_model( xb )
-        else:
-          discriminative_gen = self.disc_model( _xgenb )
-          discriminative_real = self.disc_model( xb )
-
-        if self.loss == 'wgan':
-          loss_train_disc = ( discriminative_gen - discriminative_real ).mean()
-        elif self.loss in ( 'nonsaturating', 'minimax' ):
-          loss_train_disc = \
-            F.binary_cross_entropy_with_logits( input = discriminative_gen,
-                                                target = self._dummy_target_gen,
-                                                reduction = 'mean' ) + \
-            F.binary_cross_entropy_with_logits( input = discriminative_real,
-                                                target = self._dummy_target_real,
-                                                reduction = 'mean' )
-
-        if self.ac:
-          loss_train_disc += \
-            ( self.loss_func_aux( gen_preds, gen_labels ) + \
-              self.loss_func_aux( real_preds, real_labels )
-            ).mean() * self.config.ac_disc_scale
-
-        if self.gradient_penalty is not None:
-          loss_train_disc += self.calc_gp( _xgenb, xb )
-
-        # Backprop:
-        loss_train_disc.backward()  # compute the gradients
-        self.opt_disc.step()        # update the parameters you specified to the optimizer with backprop
-        # self.opt_disc.zero_grad()
-
-        # Compute metrics for discriminator (validation metrics should be for entire validation set):
-        metrics_vals = []
-        _valid_title = []
-        if z_valid_dl is not None and valid_dl is not None and self.config.disc_metrics:
-          if ( itr + 1 ) % self.config.num_iters_valid == 0 or itr == 0:
-            metrics_vals = self.compute_metrics(
-              metrics = self.config.disc_metrics, metrics_type = 'Discriminator',
-              z_valid_dl = z_valid_dl, valid_dl = valid_dl
+          elif self.loss == 'minimax':
+            loss_train_gen = -F.binary_cross_entropy_with_logits(
+              input = loss_train_gen,
+              target = self._dummy_target_gen,
+              reduction = 'mean'
             )
-            _valid_title = [ '|\n', 'Validation Metrics:' ]
 
-            if disc_iter == num_disc_iters - 1: start = timer()
+          if self.ac:
+            loss_train_gen += self.loss_func_aux( gen_preds, gen_labels ).mean() * self.config.ac_gen_scale
 
-        print( f'Discriminator Batch Metrics: Batch # {disc_iter} |', \
-               f'Train Loss {loss_train_disc.item()}', *_valid_title, *metrics_vals
-        )
+          # Backprop:
+          loss_train_gen.backward()  # compute the gradients
+          # loss_train_gen = -loss_train_gen
+          self.opt_gen.step()        # update the parameters you specified to the optimizer with backprop
+          # self.opt_gen.zero_grad()
 
-        self.curr_dataset_batch_num += 1
-        self.curr_img_num += self.batch_size
+          # Compute metrics for generator (validation metrics should be for entire validation set):
+          metrics_vals = []
+          _valid_title = []
+          if z_valid_dl is not None and self.config.gen_metrics:
+            if ( gen_iter == num_gen_iters - 1 ) and ( ( itr + 1 ) % self.config.num_iters_valid == 0 or itr == 0 ):
+              if itr != 0:
+                end = timer(); print( f'\n\nTime since last Validation Set: {end - start} seconds.' )
 
-      if self.sched_bool:
-        self.scheduler_gen.step()
-        self.scheduler_disc.step()
+              metrics_vals = self.compute_metrics(
+                metrics = self.config.gen_metrics, metrics_type = 'Generator',
+                z_valid_dl = z_valid_dl, valid_dl = None
+              )
+              _valid_title = [ '|\n', 'Generator Validation Metrics:\n' ]
+              print( *_valid_title, *metrics_vals )
 
-      if self.not_trained_yet:
-        self.not_trained_yet = False
+          tqdm_loss_gen = '%9.4g' % loss_train_gen.item()
+          if itr:
+            tqdm_desc = '%9s' % f'{self.curr_epoch_num}/{self.tot_num_epochs}'
+            tqdm_desc += '%9s' % f'{self.config.res_samples}X{self.config.res_samples}'
+            tqdm_desc += tqdm_lr
+            tqdm_desc += tqdm_loss_disc + tqdm_loss_gen
+            tqdm_desc += '%9s' % itr
+            tqdm_desc += '    Img'
+            pbar.set_description( tqdm_desc )
 
-      # Save model every self.config.num_iters_save_model iterations:
-      if ( itr + 1 ) % self.config.num_iters_save_model == 0:
-        self.gen_model.to( 'cpu' )
-        self.gen_model.eval()
-        self.disc_model.to( 'cpu' )
-        self.disc_model.eval()
+        #------------------------- TRAIN DISCRIMINATOR ----------------------------
 
-        self.save_model( self.config.save_model_dir/( self.model.casefold().replace( " ", "" ) + '_model.tar' ) )
+        # these are set to `False` for the Generator because you don't need
+        # the Discriminator's parameters' gradients when chain-ruling back to the generator
+        for p in self.disc_model.parameters(): p.requires_grad_( True )
 
-        self.gen_model.to( self.config.dev )
-        self.gen_model.train()
-        self.disc_model.to( self.config.dev )
-        self.disc_model.train()
+        # loss_train_disc = None
+        for disc_iter in range( num_disc_iters ):
+          self.disc_model.zero_grad()
+
+          # Sample latent vector z:
+          if self.cond_gen:
+            # Class-conditioning in the latent space:
+            # TODO: Implement embedding-style conditioning from "Which Training Methods for
+            #       GANs do actually Converge" & discriminator conditioning.
+            gen_labels = torch.randint( 0, self.num_classes, ( self.batch_size, 1, ), dtype = torch.int64, device = self.config.dev )
+            zb = gen_rand_latent_vars( num_samples = self.batch_size, length = self.config.len_latent,
+                                      distribution = self.config.latent_distribution, device = self.config.dev )
+            self.labels_one_hot_disc.zero_()
+            self.labels_one_hot_disc.scatter_( 1, gen_labels, 1 )
+            if self.ac: gen_labels.squeeze_()
+            zb = torch.cat( ( zb, self.labels_one_hot_disc, ), dim = 1 )
+          else:
+            zb = gen_rand_latent_vars( num_samples = self.batch_size, length = self.config.len_latent,
+                                      distribution = self.config.latent_distribution, device = self.config.dev )
+          with torch.no_grad(): zbv = zb  # makes sure to totally freeze the generator when training discriminator
+          _xgenb = self.gen_model( zbv ).detach()
+
+          # Sample real data x:
+          batch = next( self.train_dataiter, None )
+          if batch is None:
+            self.curr_epoch_num += 1
+            pbar.close()
+            print( f'\n\nEPOCH # {self.curr_epoch_num - 1} COMPLETE. BEGIN EPOCH #', \
+                  f'{self.curr_epoch_num}\n' )
+            print( ('\n' + '%9s' * 7 ) % ( 'Epoch', 'Res', 'D LR', 'G LR', 'D Loss', 'G Loss', 'Itr' ) )
+            pbar = tqdm( total = self.dataset_sz // self.batch_size * self.batch_size, unit = ' imgs' )
+            self.train_dataiter = iter( train_dl )
+            batch = next( self.train_dataiter )
+          xb = ( batch[0] ).to( self.config.dev )
+          if self.ac: real_labels = ( batch[1] ).to( self.config.dev )
+
+          # Forward prop:
+          if self.ac:
+            discriminative_gen, gen_preds = self.disc_model( _xgenb )
+            discriminative_real, real_preds = self.disc_model( xb )
+          else:
+            discriminative_gen = self.disc_model( _xgenb )
+            discriminative_real = self.disc_model( xb )
+
+          if self.loss == 'wgan':
+            loss_train_disc = ( discriminative_gen - discriminative_real ).mean()
+          elif self.loss in ( 'nonsaturating', 'minimax' ):
+            loss_train_disc = \
+              F.binary_cross_entropy_with_logits( input = discriminative_gen,
+                                                  target = self._dummy_target_gen,
+                                                  reduction = 'mean' ) + \
+              F.binary_cross_entropy_with_logits( input = discriminative_real,
+                                                  target = self._dummy_target_real,
+                                                  reduction = 'mean' )
+
+          if self.ac:
+            loss_train_disc += \
+              ( self.loss_func_aux( gen_preds, gen_labels ) + \
+                self.loss_func_aux( real_preds, real_labels )
+              ).mean() * self.config.ac_disc_scale
+
+          if self.gradient_penalty is not None:
+            loss_train_disc += self.calc_gp( _xgenb, xb )
+
+          # Backprop:
+          loss_train_disc.backward()  # compute the gradients
+          self.opt_disc.step()        # update the parameters you specified to the optimizer with backprop
+          # self.opt_disc.zero_grad()
+
+          # Compute metrics for discriminator (validation metrics should be for entire validation set):
+          metrics_vals = []
+          _valid_title = []
+          if z_valid_dl is not None and valid_dl is not None and self.config.disc_metrics:
+            if ( disc_iter == num_disc_iters - 1 ) and ( ( itr + 1 ) % self.config.num_iters_valid == 0 or itr == 0 ):
+              metrics_vals = self.compute_metrics(
+                metrics = self.config.disc_metrics, metrics_type = 'Discriminator',
+                z_valid_dl = z_valid_dl, valid_dl = valid_dl
+              )
+              _valid_title = [ '|\n', 'Discriminator Validation Metrics:\n' ]
+              print( *_valid_title, *metrics_vals )
+              if itr:
+                print( ('\n' + '%9s' * 7 ) % ( 'Epoch', 'Res', 'D LR', 'G LR', 'D Loss', 'G Loss', 'Itr' ) )
+
+              start = timer()
+
+          tqdm_loss_disc = '%9.4g' % loss_train_disc.item()
+          if itr:
+            tqdm_desc = '%9s' % f'{self.curr_epoch_num}/{self.tot_num_epochs}'
+            tqdm_desc += '%9s' % f'{self.config.res_samples}X{self.config.res_samples}'
+            tqdm_desc += tqdm_lr
+            tqdm_desc += tqdm_loss_disc + tqdm_loss_gen
+            tqdm_desc += '%9s' % itr
+            tqdm_desc += '    Img'
+            pbar.set_description( tqdm_desc )
+
+          pbar.update( xb.shape[0] )
+
+          self.curr_dataset_batch_num += 1
+          self.curr_img_num += self.batch_size
+
+        if not itr:
+          print( ('\n' + '%9s' * 7 ) % ( 'Epoch', 'Res', 'D LR', 'G LR', 'D Loss', 'G Loss', 'Itr' ) )
+        # pbar.set_postfix( tqdm_desc )
+        # tqdm.write( tqdm_desc )
+
+        if self.sched_bool:
+          self.scheduler_gen.step()
+          self.scheduler_disc.step()
+
+        if self.not_trained_yet:
+          self.not_trained_yet = False
+
+        # Save model every self.config.num_iters_save_model iterations:
+        if ( itr + 1 ) % self.config.num_iters_save_model == 0:
+          self.gen_model.to( 'cpu' )
+          self.gen_model.eval()
+          self.disc_model.to( 'cpu' )
+          self.disc_model.eval()
+
+          self.save_model( self.config.save_model_dir/( self.model.casefold().replace( " ", "" ) + '_model.tar' ) )
+
+          self.gen_model.to( self.config.dev )
+          self.gen_model.train()
+          self.disc_model.to( self.config.dev )
+          self.disc_model.train()
+
+
+    except KeyboardInterrupt:
+      
+      pbar.close()
+
+      self.gen_model.to( 'cpu' )
+      self.gen_model.eval()
+      self.disc_model.to( 'cpu' )
+      self.disc_model.eval()
+
+      self.save_model( self.config.save_model_dir/( self.model.casefold().replace( " ", "" ) + '_model.tar' ) )
+
+      print( f'\nTraining interrupted. Saved latest checkpoint into "{self.config.save_model_dir}/".\n' )
+
+      try:
+        sys.exit( 0 )
+      except SystemExit:
+        os._exit( 0 )
+
+
+    pbar.close()
 
     self.gen_model.to( 'cpu' )
     self.gen_model.eval()
@@ -922,7 +997,7 @@ class GANLearner( object ):
     plt.show()
 
   @torch.no_grad()
-  def make_image_grid( self, zs, labels = None ):
+  def make_image_grid( self, zs, labels = None, save_path = None ):
     """Generates grid of images from input latent codes, whose size is `np.sqrt( len( zs ) )`."""
     if self.ds_mean is None or self.ds_std is None:
       raise ValueError( "This model does not hold any information about your dataset's mean and/or std.\n" + \
@@ -963,6 +1038,12 @@ class GANLearner( object ):
     logger.setLevel( _old_level )
     fig.subplots_adjust( left = 0, right = 1, bottom = 0, top = 1, wspace = 0, hspace = 0 )
 
+    # maintain resolution of images and save
+    if save_path is not None:
+      bbox = axs[-1].get_window_extent().transformed( fig.dpi_scale_trans.inverted() )
+      dpi = self.config.res_samples / bbox.height
+      fig.savefig( save_path, dpi = dpi, pad_inches = 0 )
+
     return ( fig, axs, )
 
   # .......................................................................... #
@@ -995,6 +1076,8 @@ class GANLearner( object ):
   def save_model( self, save_path:Path ):
     if self.not_trained_yet:
       raise Exception( 'Please train your model for atleast 1 iteration before saving.' )
+
+    warnings.filterwarnings( 'ignore', category = UserWarning )
 
     if self.config.res_samples == 64:
       _fmap_g = FMAP_G; _fmap_d = FMAP_D
@@ -1036,7 +1119,7 @@ class GANLearner( object ):
                 'batch_size': self.batch_size,
                 'curr_dataset_batch_num': self.curr_dataset_batch_num,
                 'curr_epoch_num': self.curr_epoch_num,
-                'curr_valid_num': self.curr_valid_num,
+                'tot_num_epochs': self.tot_num_epochs,
                 'dataset_sz': self.dataset_sz,
                 'ac': self.ac,
                 'cond_gen': self.cond_gen,
@@ -1119,7 +1202,7 @@ class GANLearner( object ):
 
     self.curr_dataset_batch_num = checkpoint['curr_dataset_batch_num']
     self.curr_epoch_num = checkpoint['curr_epoch_num']
-    self.curr_valid_num = checkpoint['curr_valid_num']
+    self.tot_num_epochs = checkpoint['tot_num_epochs']
     self.dataset_sz = checkpoint['dataset_sz']
 
     self.ac = checkpoint['ac']
