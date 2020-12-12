@@ -1,7 +1,7 @@
 # GAN Lab
 ### _1024x1024 images generated from a StyleGAN trained on FFHQ (not yet fully trained):_
 
-<img align="center" src="https://github.com/sidward14/gan-lab/raw/master/examples/for_readme/stylegan/stylemixed-grid_sample.png" height="656" width="850"/>
+<img align="center" src="https://github.com/sidward14/gan-lab/raw/master/examples/for_readme/stylegan/stylemixed-grid_sample.png" height="586" width="850"/>
 <p align="middle">
   <img src="https://github.com/sidward14/gan-lab/raw/master/examples/for_readme/stylegan/stylegan_generated_image0.png" height="416" width="416"/>
   <img src="https://github.com/sidward14/gan-lab/raw/master/examples/for_readme/stylegan/stylegan_generated_image1.png" height="416" width="416"/>

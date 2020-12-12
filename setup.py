@@ -14,7 +14,7 @@ def readme( ):
 
 setup(
   name = 'gan-lab',
-  version = '0.4.0',
+  version = '0.4.1',
   author = 'Sidhartha Parhi',
   author_email = 'sidhartha.parhi@gmail.com',
   description = "StyleGAN, ProGAN, and ResNet GANs to experiment with",

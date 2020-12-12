@@ -344,7 +344,7 @@ class StyleGANLearner( ProGANLearner ):
 
     ncols_tot = 1 + szs[0]; nrows_tot = 1 + sum( szs[1:] )
     cum_szs = [0] + list( accumulate( szs[1:] ) )
-    fig = plt.figure( figsize = ( 8. * ( ncols_tot / nrows_tot ), 8. if labels is None else 9., ) )
+    fig = plt.figure( figsize = ( 8. * ( ncols_tot / nrows_tot ), 8. if labels is None else 9., ), facecolor = 'white' )
     axs = fig.subplots( ncols = ncols_tot, nrows = nrows_tot )
     fig.tight_layout( pad = 0 )
     _fctrs = ( ( fig.subplotpars.wspace / 0.47267497603068315 ), ( fig.subplotpars.hspace / 0.28000000000000086 ), )
@@ -424,7 +424,7 @@ class StyleGANLearner( ProGANLearner ):
     if save_path is not None:
       bbox = axs[-1][-1].get_window_extent().transformed( fig.dpi_scale_trans.inverted() )
       dpi = ( self.gen_model_lagged.curr_res if time_average else self.gen_model.curr_res ) / bbox.height
-      fig.savefig( save_path, dpi = dpi, bbox_inches = 'tight', pad_inches = 0 )
+      fig.savefig( save_path, dpi = dpi, bbox_inches = 'tight', pad_inches = 0, facecolor = fig.get_facecolor() )
       
     return ( fig, axs, )
 
