@@ -20,7 +20,6 @@ This package aims for an intuitive API without sacrificing any complexity anywhe
 
 --------------------------------------------------------------------------------
 
-In your virtual environment (e.g. a conda virtual environment), run:
   ~~~
   $ pip install gan-lab
   ~~~
